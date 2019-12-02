@@ -29,11 +29,48 @@ public struct SQLList: SQLExpression {
                 serializer.write(" ")
                 self.separator.serialize(to: &serializer)
                 serializer.write(" ")
+            } else {
+                first = false
             }
-            first = false
             el.serialize(to: &serializer)
         }
     }
+}
+
+public struct SQLGroup: SQLExpression {
+    public var items: [SQLExpression]
+    public var relation: SQLExpression
+
+    public init(items: [SQLExpression], relation: SQLExpression) {
+        self.items = items
+        self.relation = relation
+    }
+
+    public func serialize(to serializer: inout SQLSerializer) {
+        var first = true
+        serializer.write("(")
+        for el in self.items {
+            if (!first) {
+                serializer.write(" ")
+                self.relation.serialize(to: &serializer)
+                serializer.write(" ")
+            } else {
+                first = false
+            }
+            el.serialize(to: &serializer)
+        }
+        serializer.write(")")
+    }
+}
+
+public struct SQLFalse: SQLExpression {
+    
+    public init() { }
+    
+    public func serialize(to serializer: inout SQLSerializer) {
+        serializer.write("FALSE")
+    }
+    
 }
 
 /// Wraps a non-generic `Encodable` type for passing to a method that requires

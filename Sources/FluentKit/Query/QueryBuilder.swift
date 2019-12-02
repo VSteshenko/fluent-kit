@@ -669,7 +669,7 @@ public final class QueryBuilder<Model>
                 .forEach { $0.excludeDeleted(from: &query) }
         }
         
-        self.database.logger.info("\(self.query)")
+//        self.database.logger.info("\(self.query)")
 
         let done = self.database.driver.execute(
             query: query,

@@ -40,6 +40,11 @@ public final class Field<Value>: AnyField, FieldRepresentable
         self.key = key
     }
 
+//    public init(wrappedValue: Value, key: String) {
+//        self.inputValue = .bind(wrappedValue)
+//        self.key = key
+//    }
+
     // MARK: Property
 
     func output(from output: DatabaseOutput) throws {

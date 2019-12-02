@@ -16,6 +16,7 @@ public struct DatabaseSchema {
         case create
         case update
         case delete
+        case execute(String)
     }
     
     public enum DataType {
@@ -108,6 +109,14 @@ public struct DatabaseSchema {
     public init(schema: String) {
         self.action = .create
         self.schema = schema
+        self.createFields = []
+        self.deleteFields = []
+        self.constraints = []
+    }
+
+    public init(sql: String) {
+        self.action = .execute(sql)
+        self.schema = "sql"
         self.createFields = []
         self.deleteFields = []
         self.constraints = []

@@ -4,6 +4,10 @@ extension Database {
     public func schema(_ schema: String) -> SchemaBuilder {
         return .init(database: self, schema: schema)
     }
+    
+    public func sql(_ sql: String) -> SchemaBuilder {
+        return .init(database: self, sql: sql)
+    }
 }
 
 public final class SchemaBuilder {
@@ -13,6 +17,11 @@ public final class SchemaBuilder {
     init(database: Database, schema: String) {
         self.database = database
         self.schema = .init(schema: schema)
+    }
+
+    init(database: Database, sql: String) {
+        self.database = database
+        self.schema = .init(sql: sql)
     }
 
     public func field(
@@ -62,4 +71,9 @@ public final class SchemaBuilder {
         self.schema.action = .create
         return self.database.driver.execute(schema: self.schema, database: self.database)
     }
+
+    public func execute() -> EventLoopFuture<Void> {
+        return self.database.driver.execute(schema: self.schema, database: self.database)
+    }
+    
 }

@@ -222,6 +222,10 @@ public struct SQLQueryConverter {
                     right: right
                 )
             default:
+                if case let .array(values) = value, values.isEmpty {
+                    return SQLFalse()
+                }
+                
                 return SQLBinaryExpression(
                     left: self.field(field),
                     op: self.method(method),
@@ -237,7 +241,7 @@ public struct SQLQueryConverter {
         case .custom(let any):
             return custom(any)
         case .group(let filters, let relation):
-            return SQLList(items: filters.map(self.filter), separator: self.relation(relation))
+            return SQLGroup(items: filters.map(self.filter), relation: self.relation(relation))
         }
     }
     

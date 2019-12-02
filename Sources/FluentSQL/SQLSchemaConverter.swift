@@ -17,11 +17,18 @@ public struct SQLSchemaConverter {
             return self.delete(schema)
         case .update:
             return self.update(schema)
+        case .execute(let sql):
+            return self.execute(schema, sql)
         }
     }
     
     // MARK: Private
 
+    private func execute(_ schema: DatabaseSchema, _ sql: String) -> SQLExpression {
+        let sql = SQLRaw(sql)
+        return sql
+    }
+    
     private func update(_ schema: DatabaseSchema) -> SQLExpression {
         var update = SQLAlterTable(name: self.name(schema.schema))
         update.columns = schema.createFields.map(self.fieldDefinition)
