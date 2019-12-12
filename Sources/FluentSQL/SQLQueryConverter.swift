@@ -3,7 +3,7 @@ public struct SQLQueryConverter {
     public init(delegate: SQLConverterDelegate) {
         self.delegate = delegate
     }
-    
+
     public func convert(_ fluent: DatabaseQuery) -> SQLExpression {
         let sql: SQLExpression
         switch fluent.action {
@@ -16,15 +16,15 @@ public struct SQLQueryConverter {
         }
         return sql
     }
-    
+
     // MARK: Private
-    
+
     private func delete(_ query: DatabaseQuery) -> SQLExpression {
         var delete = SQLDelete(table: SQLIdentifier(query.schema))
         delete.predicate = self.filters(query.filters)
         return delete
     }
-    
+
     private func update(_ query: DatabaseQuery) -> SQLExpression {
         var update = SQLUpdate(table: SQLIdentifier(query.schema))
         for (i, field) in query.fields.enumerated() {
@@ -37,7 +37,7 @@ public struct SQLQueryConverter {
         update.predicate = self.filters(query.filters)
         return update
     }
-    
+
     private func select(_ query: DatabaseQuery) -> SQLExpression {
         var select = SQLSelect()
         select.tables.append(SQLIdentifier(query.schema))
@@ -63,7 +63,7 @@ public struct SQLQueryConverter {
         }
         return select
     }
-    
+
     private func insert(_ query: DatabaseQuery) -> SQLExpression {
         var insert = SQLInsert(table: SQLIdentifier(query.schema))
         insert.columns = query.fields.map(self.field)
@@ -72,12 +72,12 @@ public struct SQLQueryConverter {
         }
         return insert
     }
-    
+
     private func filters(_ filters: [DatabaseQuery.Filter]) -> SQLExpression? {
         guard !filters.isEmpty else {
             return nil
         }
-        
+
         return SQLList(
             items: filters.map(self.filter),
             separator: SQLBinaryOperator.and
@@ -103,7 +103,7 @@ public struct SQLQueryConverter {
             return custom(any)
         }
     }
-    
+
     private func join(_ join: DatabaseQuery.Join) -> SQLExpression {
         switch join {
         case .custom(let any):
@@ -133,7 +133,7 @@ public struct SQLQueryConverter {
             return custom(any)
         }
     }
-    
+
     private func joinMethod(_ method: DatabaseQuery.Join.Method) -> SQLExpression {
         switch method {
         case .inner: return SQLJoinMethod.inner
@@ -144,7 +144,7 @@ public struct SQLQueryConverter {
             return custom(any)
         }
     }
-    
+
     private func field(_ field: DatabaseQuery.Field) -> SQLExpression {
         switch field {
         case .custom(let any):
@@ -190,7 +190,7 @@ public struct SQLQueryConverter {
             }
         }
     }
-    
+
     private func filter(_ filter: DatabaseQuery.Filter) -> SQLExpression {
         switch filter {
         case .value(let field, let method, let value):
@@ -225,7 +225,7 @@ public struct SQLQueryConverter {
                 if case let .array(values) = value, values.isEmpty {
                     return SQLFalse()
                 }
-                
+
                 return SQLBinaryExpression(
                     left: self.field(field),
                     op: self.method(method),
@@ -241,10 +241,14 @@ public struct SQLQueryConverter {
         case .custom(let any):
             return custom(any)
         case .group(let filters, let relation):
-            return SQLGroup(items: filters.map(self.filter), relation: self.relation(relation))
+            let expression = SQLList(
+                items: filters.map(self.filter),
+                separator: self.relation(relation)
+            )
+            return SQLGroupExpression(expression)
         }
     }
-    
+
     private func relation(_ relation: DatabaseQuery.Filter.Relation) -> SQLExpression {
         switch relation {
         case .and:
@@ -255,7 +259,7 @@ public struct SQLQueryConverter {
             return custom(any)
         }
     }
-    
+
     struct DictValues: Encodable {
         let dict: [String: DatabaseQuery.Value]
 
@@ -273,7 +277,7 @@ public struct SQLQueryConverter {
             }
         }
     }
-    
+
     private func value(_ value: DatabaseQuery.Value) -> SQLExpression {
         switch value {
         case .bind(let encodable):
@@ -290,7 +294,7 @@ public struct SQLQueryConverter {
             return custom(any)
         }
     }
-    
+
     private func method(_ method: DatabaseQuery.Filter.Method) -> SQLExpression {
         switch method {
         case .equality(let inverse):

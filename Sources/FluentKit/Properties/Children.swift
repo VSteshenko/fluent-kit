@@ -79,18 +79,15 @@ extension Children: EagerLoadable {
 extension Children: AnyEagerLoadable {
     var eagerLoadKey: String {
         let ref = To()
-        return "c:" + ref[keyPath: self.parentKey].key
+        return "c:\(To.schema):\(ref[keyPath: self.parentKey].key)"
     }
 
     var eagerLoadValueDescription: CustomStringConvertible? {
         return self.eagerLoadedValue
     }
 
-    public func eagerLoaded() throws -> [To] {
-        guard let rows = self.eagerLoadedValue else {
-            throw FluentError.missingEagerLoad(name: To.schema.self)
-        }
-        return rows
+    public var eagerLoaded: [To]? {
+        self.eagerLoadedValue
     }
 
     func eagerLoad(from eagerLoads: EagerLoads) throws {

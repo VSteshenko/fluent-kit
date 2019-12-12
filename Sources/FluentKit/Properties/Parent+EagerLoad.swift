@@ -20,10 +20,16 @@ extension Parent: AnyEagerLoadable {
     }
 }
 
-
 // MARK: - Eager Loadable
 
 extension Parent: EagerLoadable {
+    public var eagerLoaded: To? {
+        if case let .loaded(parent) = self.eagerLoadedValue {
+            return parent
+        }
+        return nil
+    }
+
     public func eagerLoad<Model>(to builder: QueryBuilder<Model>) where Model: FluentKit.Model {
         builder.eagerLoads.requests[self.eagerLoadKey] = self.eagerLoadRequest
     }

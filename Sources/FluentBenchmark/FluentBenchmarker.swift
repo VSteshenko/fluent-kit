@@ -1,10 +1,10 @@
-import FluentKit
+@testable import FluentKit
 import Foundation
+import NIO
 import XCTest
 
 public final class FluentBenchmarker {
     public let database: Database
-
     public init(database: Database) {
         self.database = database
     }
@@ -33,16 +33,22 @@ public final class FluentBenchmarker {
         try self.testAsyncCreate()
         try self.testSoftDelete()
         try self.testTimestampable()
-        try self.testLifecycleHooks()
+        try self.testModelMiddleware()
         try self.testSort()
         try self.testUUIDModel()
         try self.testNewModelDecode()
         try self.testSiblingsAttach()
+        try self.testSiblingsEagerLoad()
         try self.testParentGet()
         try self.testParentSerialization()
         try self.testMultipleJoinSameTable()
+        try self.testOptionalParent()
         try self.testFieldFilter()
         try self.testJoinedFieldFilter()
+        try self.testSameChildrenFromKey()
+        try self.testArray()
+        try self.testPerformance()
+        try self.testSoftDeleteWithQuery()
     }
 
     public func testCreate() throws {
@@ -124,7 +130,7 @@ public final class FluentBenchmarker {
             }
         }
     }
-    
+
     public func testEagerLoadChildren() throws {
         try runTest(#function, [
             GalaxyMigration(),
@@ -139,10 +145,10 @@ public final class FluentBenchmarker {
             for galaxy in galaxies {
                 switch galaxy.name {
                 case "Milky Way":
-                    guard try galaxy.$planets.eagerLoaded().contains(where: { $0.name == "Earth" }) else {
+                    guard galaxy.planets.contains(where: { $0.name == "Earth" }) else {
                         throw Failure("unexpected missing planet")
                     }
-                    guard try !galaxy.$planets.eagerLoaded().contains(where: { $0.name == "PA-99-N2"}) else {
+                    guard !galaxy.planets.contains(where: { $0.name == "PA-99-N2"}) else {
                         throw Failure("unexpected planet")
                     }
                 default: break
@@ -216,24 +222,41 @@ public final class FluentBenchmarker {
                 var id: Int
                 var name: String
                 var galaxy: GalaxyJSON
+
+                init(name: String, galaxy: GalaxyJSON, on database: Database) throws {
+                    self.id = try Planet.query(on: database)
+                        .filter(\.$name == name)
+                        .first().wait()?
+                        .id ?? 0
+                    self.name = name
+                    self.galaxy = galaxy
+                }
             }
             struct GalaxyJSON: Codable, Equatable {
                 var id: Int
                 var name: String
+
+                init(name: String, on database: Database) throws {
+                    self.id = try Galaxy.query(on: database)
+                        .filter(\.$name == name)
+                        .first().wait()?
+                        .id ?? 0
+                    self.name = name
+                }
             }
 
-            let milkyWay = GalaxyJSON(id: 2, name: "Milky Way")
-            let andromeda = GalaxyJSON(id: 1, name: "Andromeda")
-            let expected: [PlanetJSON] = [
-                .init(id: 1, name: "Mercury", galaxy: milkyWay),
-                .init(id: 2, name: "Venus", galaxy: milkyWay),
-                .init(id: 3, name: "Earth", galaxy: milkyWay),
-                .init(id: 4, name: "Mars", galaxy: milkyWay),
-                .init(id: 5, name: "Jupiter", galaxy: milkyWay),
-                .init(id: 6, name: "Saturn", galaxy: milkyWay),
-                .init(id: 7, name: "Uranus", galaxy: milkyWay),
-                .init(id: 8, name: "Neptune", galaxy: milkyWay),
-                .init(id: 9, name: "PA-99-N2", galaxy: andromeda),
+            let milkyWay = try GalaxyJSON(name: "Milky Way", on: self.database)
+            let andromeda = try GalaxyJSON(name: "Andromeda", on: self.database)
+            let expected: [PlanetJSON] = try [
+                .init(name: "Mercury", galaxy: milkyWay, on: self.database),
+                .init(name: "Venus", galaxy: milkyWay, on: self.database),
+                .init(name: "Earth", galaxy: milkyWay, on: self.database),
+                .init(name: "Mars", galaxy: milkyWay, on: self.database),
+                .init(name: "Jupiter", galaxy: milkyWay, on: self.database),
+                .init(name: "Saturn", galaxy: milkyWay, on: self.database),
+                .init(name: "Uranus", galaxy: milkyWay, on: self.database),
+                .init(name: "Neptune", galaxy: milkyWay, on: self.database),
+                .init(name: "PA-99-N2", galaxy: andromeda, on: self.database),
             ]
 
             // subquery
@@ -243,9 +266,7 @@ public final class FluentBenchmarker {
                     .all().wait()
 
                 let decoded = try JSONDecoder().decode([PlanetJSON].self, from: JSONEncoder().encode(planets))
-                guard decoded == expected else {
-                    throw Failure("unexpected output")
-                }
+                XCTAssertEqual(decoded, expected)
             }
 
             // join
@@ -255,11 +276,8 @@ public final class FluentBenchmarker {
                     .all().wait()
 
                 let decoded = try JSONDecoder().decode([PlanetJSON].self, from: JSONEncoder().encode(planets))
-                guard decoded == expected else {
-                    throw Failure("unexpected output")
-                }
+                XCTAssertEqual(decoded, expected)
             }
-
         }
     }
 
@@ -313,17 +331,13 @@ public final class FluentBenchmarker {
 
     public func testMigrator() throws {
         try self.runTest(#function, []) {
-            var migrations = Migrations()
+            let migrations = Migrations()
             migrations.add(GalaxyMigration())
             migrations.add(PlanetMigration())
 
-            let databases = Databases()
-            databases.add(self.database.driver, as: .init(string: "main"))
-
-            var migrator = Migrator(
-                databases: databases,
+            let migrator = Migrator(
+                databaseFactory: { _ in self.database },
                 migrations: migrations,
-                logger: .init(label: "codes.vapor.fluent.test"),
                 on: self.database.eventLoop
             )
             try migrator.setupIfNeeded().wait()
@@ -344,18 +358,14 @@ public final class FluentBenchmarker {
 
     public func testMigratorError() throws {
         try self.runTest(#function, []) {
-            var migrations = Migrations()
+            let migrations = Migrations()
             migrations.add(GalaxyMigration())
             migrations.add(ErrorMigration())
             migrations.add(PlanetMigration())
 
-            let databases = Databases()
-            databases.add(self.database.driver, as: .init(string: "main"))
-
             let migrator = Migrator(
-                databases: databases,
+                databaseFactory: { _ in self.database },
                 migrations: migrations,
-                logger: .init(label: "codes.vapor.fluent.test"),
                 on: self.database.eventLoop
             )
             try migrator.setupIfNeeded().wait()
@@ -706,61 +716,27 @@ public final class FluentBenchmarker {
     }
 
     public func testSoftDelete() throws {
-        final class SoftDeleteUser: Model {
-            static let schema = "sd_users"
-
-            @ID(key: "id")
-            var id: Int?
-
-            @Field(key: "name")
-            var name: String
-
-            @Timestamp(key: "deleted_at", on: .delete)
-            var deletedAt: Date?
-
-            init() { }
-            init(id: Int? = nil, name: String) {
-                self.id = id
-                self.name = name
-            }
-        }
-
-        struct SDUserMigration: Migration {
-            func prepare(on database: Database) -> EventLoopFuture<Void> {
-                return database.schema("sd_users")
-                    .field("id", .int, .identifier(auto: true))
-                    .field("name", .string, .required)
-                    .field("deleted_at", .datetime)
-                    .create()
-            }
-
-            func revert(on database: Database) -> EventLoopFuture<Void> {
-                return database.schema("sd_users").delete()
-            }
-        }
-
-
         func testCounts(allCount: Int, realCount: Int) throws {
-            let all = try SoftDeleteUser.query(on: self.database).all().wait()
+            let all = try Trash.query(on: self.database).all().wait()
             guard all.count == allCount else {
                 throw Failure("all count should be \(allCount)")
             }
-            let real = try SoftDeleteUser.query(on: self.database).withDeleted().all().wait()
+            let real = try Trash.query(on: self.database).withDeleted().all().wait()
             guard real.count == realCount else {
                 throw Failure("real count should be \(realCount)")
             }
         }
 
         try runTest(#function, [
-            SDUserMigration(),
+            TrashMigration(),
         ]) {
             // save two users
-            try SoftDeleteUser(name: "A").save(on: self.database).wait()
-            try SoftDeleteUser(name: "B").save(on: self.database).wait()
+            try Trash(contents: "A").save(on: self.database).wait()
+            try Trash(contents: "B").save(on: self.database).wait()
             try testCounts(allCount: 2, realCount: 2)
 
             // soft-delete a user
-            let a = try SoftDeleteUser.query(on: self.database).filter(\.$name == "A").first().wait()!
+            let a = try Trash.query(on: self.database).filter(\.$contents == "A").first().wait()!
             try a.delete(on: self.database).wait()
             try testCounts(allCount: 1, realCount: 2)
 
@@ -833,7 +809,7 @@ public final class FluentBenchmarker {
         }
     }
 
-    public func testLifecycleHooks() throws {
+    public func testModelMiddleware() throws {
         struct TestError: Error {
             var string: String
         }
@@ -846,46 +822,64 @@ public final class FluentBenchmarker {
             @Field(key: "name")
             var name: String
 
+            @Timestamp(key: "deletedAt", on: .delete)
+            var deletedAt: Date?
+
             init() { }
             init(id: Int? = nil, name: String) {
                 self.id = id
                 self.name = name
             }
-
-            func willCreate(on database: Database) -> EventLoopFuture<Void> {
-                self.name = "B"
-                return database.eventLoop.makeSucceededFuture(())
-            }
-
-            func didCreate(on database: Database) -> EventLoopFuture<Void> {
-                return database.eventLoop.makeFailedFuture(TestError(string: "didCreate"))
-            }
-
-            func willUpdate(on database: Database) -> EventLoopFuture<Void> {
-                self.name = "D"
-                return database.eventLoop.makeSucceededFuture(())
-            }
-
-            func didUpdate(on database: Database) -> EventLoopFuture<Void> {
-                return database.eventLoop.makeFailedFuture(TestError(string: "didUpdate"))
-            }
-
-            func willDelete(on database: Database) -> EventLoopFuture<Void> {
-                self.name = "E"
-                return database.eventLoop.makeSucceededFuture(())
-            }
-
-            func didDelete(on database: Database) -> EventLoopFuture<Void> {
-                return database.eventLoop.makeFailedFuture(TestError(string: "didDelete"))
-            }
         }
 
+        struct UserMiddleware: ModelMiddleware {
+            func create(model: User, on db: Database, next: AnyModelResponder) -> EventLoopFuture<Void> {
+                model.name = "B"
+
+                return next.create(model, on: db).flatMap {
+                    return db.eventLoop.makeFailedFuture(TestError(string: "didCreate"))
+                }
+            }
+
+            func update(model: User, on db: Database, next: AnyModelResponder) -> EventLoopFuture<Void> {
+                model.name = "D"
+
+                return next.update(model, on: db).flatMap {
+                    return db.eventLoop.makeFailedFuture(TestError(string: "didUpdate"))
+                }
+            }
+
+            func softDelete(model: User, on db: Database, next: AnyModelResponder) -> EventLoopFuture<Void> {
+                model.name = "E"
+
+                return next.softDelete(model, on: db).flatMap {
+                    return db.eventLoop.makeFailedFuture(TestError(string: "didSoftDelete"))
+                }
+            }
+
+            func restore(model: User, on db: Database, next: AnyModelResponder) -> EventLoopFuture<Void> {
+                model.name = "F"
+
+                return next.restore(model , on: db).flatMap {
+                    return db.eventLoop.makeFailedFuture(TestError(string: "didRestore"))
+                }
+            }
+
+            func delete(model: User, force: Bool, on db: Database, next: AnyModelResponder) -> EventLoopFuture<Void> {
+                model.name = "G"
+
+                return next.delete(model, force: force, on: db).flatMap {
+                    return db.eventLoop.makeFailedFuture(TestError(string: "didDelete"))
+                }
+            }
+        }
 
         struct UserMigration: Migration {
             func prepare(on database: Database) -> EventLoopFuture<Void> {
                 return database.schema("users")
                     .field("id", .int, .identifier(auto: true))
                     .field("name", .string, .required)
+                    .field("deletedAt", .datetime)
                     .create()
             }
 
@@ -897,6 +891,8 @@ public final class FluentBenchmarker {
         try runTest(#function, [
             UserMigration(),
         ]) {
+            self.database.configuration.middleware.append(UserMiddleware())
+
             let user = User(name: "A")
             // create
             do {
@@ -915,13 +911,29 @@ public final class FluentBenchmarker {
             }
             XCTAssertEqual(user.name, "D")
 
-            // delete
+            // soft delete
             do {
                 try user.delete(on: self.database).wait()
             } catch let error as TestError {
-                XCTAssertEqual(error.string, "didDelete")
+                XCTAssertEqual(error.string, "didSoftDelete")
             }
             XCTAssertEqual(user.name, "E")
+
+            // restore
+            do {
+                try user.restore(on: self.database).wait()
+            } catch let error as TestError {
+                XCTAssertEqual(error.string, "didRestore")
+            }
+            XCTAssertEqual(user.name, "F")
+
+            // force delete
+            do {
+                try user.delete(force: true, on: self.database).wait()
+            } catch let error as TestError {
+                XCTAssertEqual(error.string, "didDelete")
+            }
+            XCTAssertEqual(user.name, "G")
         }
     }
 
@@ -994,6 +1006,7 @@ public final class FluentBenchmarker {
             init() { }
             init(id: UUID? = nil, title: String) {
                 self.id = id
+                self._id.exists = true
                 self.title = title
             }
         }
@@ -1337,7 +1350,7 @@ public final class FluentBenchmarker {
         }
     }
 
-    func testFieldFilter() throws {
+    public func testFieldFilter() throws {
         // seeded db
         try runTest(#function, [
             MoonMigration(),
@@ -1353,7 +1366,7 @@ public final class FluentBenchmarker {
         }
     }
 
-    func testJoinedFieldFilter() throws {
+    public func testJoinedFieldFilter() throws {
         // seeded db
         try runTest(#function, [
             CityMigration(),
@@ -1381,6 +1394,333 @@ public final class FluentBenchmarker {
                 .all()
                 .wait()
             XCTAssertEqual(averageSchools.count, 1)
+        }
+    }
+
+    public func testSameChildrenFromKey() throws {
+        final class Foo: Model {
+            static let schema = "foos"
+
+            struct _Migration: Migration {
+                func prepare(on database: Database) -> EventLoopFuture<Void> {
+                    return database.schema("foos")
+                        .field("id", .int, .identifier(auto: true))
+                        .field("name", .string, .required)
+                        .create()
+                }
+
+                func revert(on database: Database) -> EventLoopFuture<Void> {
+                    return database.schema("foos").delete()
+                }
+            }
+
+            @ID(key: "id")
+            var id: Int?
+
+            @Field(key: "name")
+            var name: String
+
+            @Children(for: \.$foo)
+            var bars: [Bar]
+
+            @Children(for: \.$foo)
+            var bazs: [Baz]
+
+            init() { }
+
+            init(id: Int? = nil, name: String) {
+                self.id = id
+                self.name = name
+            }
+        }
+
+        final class Bar: Model {
+            static let schema = "bars"
+
+            struct _Migration: Migration {
+                func prepare(on database: Database) -> EventLoopFuture<Void> {
+                    return database.schema("bars")
+                        .field("id", .int, .identifier(auto: true))
+                        .field("bar", .int, .required)
+                        .field("foo_id", .int, .required)
+                        .create()
+                }
+
+                func revert(on database: Database) -> EventLoopFuture<Void> {
+                    return database.schema("bars").delete()
+                }
+            }
+
+            @ID(key: "id")
+            var id: Int?
+
+            @Field(key: "bar")
+            var bar: Int
+
+            @Parent(key: "foo_id")
+            var foo: Foo
+
+            init() { }
+
+            init(id: Int? = nil, bar: Int, fooID: Int) {
+                self.id = id
+                self.bar = bar
+                self.$foo.id = fooID
+            }
+        }
+
+        final class Baz: Model {
+            static let schema = "bazs"
+
+            struct _Migration: Migration {
+                func prepare(on database: Database) -> EventLoopFuture<Void> {
+                    return database.schema("bazs")
+                        .field("id", .int, .identifier(auto: true))
+                        .field("baz", .double, .required)
+                        .field("foo_id", .int, .required)
+                        .create()
+                }
+
+                func revert(on database: Database) -> EventLoopFuture<Void> {
+                    return database.schema("bazs").delete()
+                }
+            }
+
+            @ID(key: "id")
+            var id: Int?
+
+            @Field(key: "baz")
+            var baz: Double
+
+            @Parent(key: "foo_id")
+            var foo: Foo
+
+            init() { }
+
+            init(id: Int? = nil, baz: Double, fooID: Int) {
+                self.id = id
+                self.baz = baz
+                self.$foo.id = fooID
+            }
+        }
+        try runTest(#function, [
+            Foo._Migration(),
+            Bar._Migration(),
+            Baz._Migration()
+        ]) {
+            let foo = Foo(name: "a")
+            try foo.save(on: self.database).wait()
+            let bar = Bar(bar: 42, fooID: foo.id!)
+            try bar.save(on: self.database).wait()
+            let baz = Baz(baz: 3.14, fooID: foo.id!)
+            try baz.save(on: self.database).wait()
+
+            let foos = try Foo.query(on: self.database)
+                .with(\.$bars)
+                .with(\.$bazs)
+                .all().wait()
+
+            for foo in foos {
+                XCTAssertEqual(foo.bars[0].bar, 42)
+                XCTAssertEqual(foo.bazs[0].baz, 3.14)
+            }
+        }
+    }
+
+    public func testArray() throws {
+        struct Qux: Codable {
+            var foo: String
+        }
+
+        final class Foo: Model {
+            static let schema = "foos"
+
+            struct _Migration: Migration {
+                func prepare(on database: Database) -> EventLoopFuture<Void> {
+                    return database.schema("foos")
+                        .field("id", .uuid, .identifier(auto: false))
+                        .field("bar", .array(of: .int), .required)
+                        .field("baz", .array(of: .string))
+                        .field("qux", .json, .required)
+                        .create()
+                }
+
+                func revert(on database: Database) -> EventLoopFuture<Void> {
+                    return database.schema("foos").delete()
+                }
+            }
+
+            @ID(key: "id")
+            var id: UUID?
+
+            @Field(key: "bar")
+            var bar: [Int]
+
+            @Field(key: "baz")
+            var baz: [String]?
+
+            @Field(key: "qux")
+            var qux: [Qux]
+
+            init() { }
+
+            init(id: UUID? = nil, bar: [Int], baz: [String]?, qux: [Qux]) {
+                self.id = id
+                self.bar = bar
+                self.baz = baz
+                self.qux = qux
+            }
+        }
+
+        try runTest(#function, [
+            Foo._Migration(),
+        ]) {
+            let new = Foo(
+                bar: [1, 2, 3],
+                baz: ["4", "5", "6"],
+                qux: [.init(foo: "7"), .init(foo: "8"), .init(foo: "9")]
+            )
+            try new.create(on: self.database).wait()
+
+            guard let fetched = try Foo.find(new.id, on: self.database).wait() else {
+                throw Failure("foo didnt save")
+            }
+            XCTAssertEqual(fetched.bar, [1, 2, 3])
+            XCTAssertEqual(fetched.baz, ["4", "5", "6"])
+            XCTAssertEqual(fetched.qux.map { $0.foo }, ["7", "8", "9"])
+        }
+    }
+
+    public func testPerformance() throws {
+        final class Foo: Model {
+            static let schema = "foos"
+
+            struct _Migration: Migration {
+                func prepare(on database: Database) -> EventLoopFuture<Void> {
+                    return database.schema("foos")
+                        .field("id", .uuid, .identifier(auto: false))
+                        .field("bar", .int, .required)
+                        .field("baz", .double, .required)
+                        .field("qux", .string, .required)
+                        .field("quux", .datetime, .required)
+                        .field("quuz", .float, .required)
+                        .field("corge", .array(of: .int), .required)
+                        .field("grault", .array(of: .double), .required)
+                        .field("garply", .array(of: .string), .required)
+                        .field("fred", .string, .required)
+                        .field("plugh", .int)
+                        .field("xyzzy", .double)
+                        .field("thud", .json, .required)
+                        .create()
+                }
+
+                func revert(on database: Database) -> EventLoopFuture<Void> {
+                    return database.schema("foos").delete()
+                }
+            }
+
+            struct Thud: Codable {
+                var foo: Int
+                var bar: Double
+                var baz: String
+            }
+
+            @ID(key: "id") var id: UUID?
+            @Field(key: "bar") var bar: Int
+            @Field(key: "baz") var baz: Double
+            @Field(key: "qux") var qux: String
+            @Field(key: "quux") var quux: Date
+            @Field(key: "quuz") var quuz: Float
+            @Field(key: "corge") var corge: [Int]
+            @Field(key: "grault") var grault: [Double]
+            @Field(key: "garply") var garply: [String]
+            @Field(key: "fred") var fred: Decimal
+            @Field(key: "plugh") var plugh: Int?
+            @Field(key: "xyzzy") var xyzzy: Double?
+            @Field(key: "thud") var thud: Thud
+
+            init() { }
+
+            init(
+                id: UUID? = nil,
+                bar: Int,
+                baz: Double,
+                qux: String,
+                quux: Date,
+                quuz: Float,
+                corge: [Int],
+                grault: [Double],
+                garply: [String],
+                fred: Decimal,
+                plugh: Int?,
+                xyzzy: Double?,
+                thud: Thud
+            ) {
+                self.id = id
+                self.bar = bar
+                self.baz = baz
+                self.qux = qux
+                self.quux = quux
+                self.quuz = quuz
+                self.corge = corge
+                self.grault = grault
+                self.garply = garply
+                self.fred = fred
+                self.plugh = plugh
+                self.xyzzy = xyzzy
+                self.thud = thud
+            }
+        }
+
+        try runTest(#function, [
+            Foo._Migration()
+        ]) {
+            for _ in 0..<100 {
+                let foo = Foo(
+                    bar: 42,
+                    baz: 3.14159,
+                    qux: "foobar",
+                    quux: .init(),
+                    quuz: 2.71828,
+                    corge: [1, 2, 3],
+                    grault: [4, 5, 6],
+                    garply: ["foo", "bar", "baz"],
+                    fred: 1.4142135623730950,
+                    plugh: 1337,
+                    xyzzy: 9.94987437106,
+                    thud: .init(foo: 5, bar: 23, baz: "1994")
+                )
+                try foo.save(on: self.database).wait()
+            }
+            let foos = try Foo.query(on: self.database).all().wait()
+            for foo in foos {
+                XCTAssertNotNil(foo.id)
+            }
+            XCTAssertEqual(foos.count, 100)
+        }
+    }
+
+    public func testSoftDeleteWithQuery() throws {
+        try runTest(#function, [
+            TrashMigration()
+        ]) {
+            // a is scheduled for soft-deletion
+            let a = Trash(contents: "a")
+            a.deletedAt = Date(timeIntervalSinceNow: 50)
+            try a.create(on: self.database).wait()
+
+            // b is not soft-deleted
+            let b = Trash(contents: "b")
+            try b.create(on: self.database).wait()
+
+            // select for non-existing c, expect 0
+            // without proper query serialization this may
+            // return a. see:
+            // https://github.com/vapor/fluent-kit/pull/104
+            let trash = try Trash.query(on: self.database)
+                .filter(\.$contents == "c")
+                .all().wait()
+            XCTAssertEqual(trash.count, 0)
         }
     }
 

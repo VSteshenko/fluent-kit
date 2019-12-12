@@ -9,11 +9,11 @@ public final class Field<Value>: AnyField, FieldRepresentable
     public var field: Field<Value> {
         return self
     }
-    
+
     public var projectedValue: Field<Value> {
         return self
     }
-    
+
     public var wrappedValue: Value {
         get {
             if let value = self.inputValue {
@@ -40,11 +40,6 @@ public final class Field<Value>: AnyField, FieldRepresentable
         self.key = key
     }
 
-//    public init(wrappedValue: Value, key: String) {
-//        self.inputValue = .bind(wrappedValue)
-//        self.key = key
-//    }
-
     // MARK: Property
 
     func output(from output: DatabaseOutput) throws {
@@ -53,7 +48,11 @@ public final class Field<Value>: AnyField, FieldRepresentable
             do {
                 self.outputValue = try output.decode(self.key, as: Value.self)
             } catch {
-                throw FluentError.invalidField(name: self.key, valueType: Value.self)
+                throw FluentError.invalidField(
+                    name: self.key,
+                    valueType: Value.self,
+                    error: error
+                )
             }
         }
     }

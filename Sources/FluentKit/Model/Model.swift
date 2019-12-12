@@ -15,20 +15,7 @@ public protocol ModelIdentifiable {
 }
 
 public protocol Model: AnyModel, ModelIdentifiable {
-    func willCreate(on database: Database) -> EventLoopFuture<Void>
-    func didCreate(on database: Database) -> EventLoopFuture<Void>
 
-    func willUpdate(on database: Database) -> EventLoopFuture<Void>
-    func didUpdate(on database: Database) -> EventLoopFuture<Void>
-
-    func willDelete(on database: Database) -> EventLoopFuture<Void>
-    func didDelete(on database: Database) -> EventLoopFuture<Void>
-
-    func willRestore(on database: Database) -> EventLoopFuture<Void>
-    func didRestore(on database: Database) -> EventLoopFuture<Void>
-
-    func willSoftDelete(on database: Database) -> EventLoopFuture<Void>
-    func didSoftDelete(on database: Database) -> EventLoopFuture<Void>
 }
 
 extension AnyModel {
@@ -38,98 +25,89 @@ extension AnyModel {
         self.init()
         let container = try decoder.container(keyedBy: _ModelCodingKey.self)
         try self.properties.forEach { label, property in
-            let decoder = LazyDecoder { try container.superDecoder(forKey: .string(label)) }
+            let decoder = ContainerDecoder(container: container, key: .string(label))
             try property.decode(from: decoder)
         }
     }
 
     public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: _ModelCodingKey.self)
+        let container = encoder.container(keyedBy: _ModelCodingKey.self)
         try self.properties.forEach { label, property in
-            let encoder = LazyEncoder { container.superEncoder(forKey: .string(label)) }
+            let encoder = ContainerEncoder(container: container, key: .string(label))
             try property.encode(to: encoder)
         }
     }
 }
 
-private final class LazyDecoder: Decoder {
-    let factory: () throws -> Decoder
-    var cached: Result<Decoder, Error>?
-    
-    var value: Result<Decoder, Error> {
-        if let decoder = self.cached {
-            return decoder
-        } else {
-            let decoder: Result<Decoder, Error>
-            do {
-                decoder = try .success(self.factory())
-            } catch {
-                decoder = .failure(error)
-            }
-            self.cached = decoder
-            return decoder
+private struct ContainerDecoder: Decoder, SingleValueDecodingContainer {
+    let container: KeyedDecodingContainer<_ModelCodingKey>
+    let key: _ModelCodingKey
+
+    var codingPath: [CodingKey] {
+        self.container.codingPath
+    }
+
+    var userInfo: [CodingUserInfoKey : Any] {
+        [:]
+    }
+
+    func container<Key>(keyedBy type: Key.Type) throws -> KeyedDecodingContainer<Key> where Key : CodingKey {
+        try self.container.nestedContainer(keyedBy: Key.self, forKey: self.key)
+    }
+
+    func unkeyedContainer() throws -> UnkeyedDecodingContainer {
+        try self.container.nestedUnkeyedContainer(forKey: self.key)
+    }
+
+    func singleValueContainer() throws -> SingleValueDecodingContainer {
+        self
+    }
+
+    func decode<T>(_ type: T.Type) throws -> T where T : Decodable {
+        try self.container.decode(T.self, forKey: self.key)
+    }
+
+    func decodeNil() -> Bool {
+        do {
+            return try self.container.decodeNil(forKey: self.key)
+        } catch {
+            return true
         }
     }
-    
-    var codingPath: [CodingKey] {
-        return (try? self.value.get().codingPath) ?? []
-    }
-    var userInfo: [CodingUserInfoKey : Any] {
-        return (try? self.value.get().userInfo) ?? [:]
-    }
-    
-    init(factory: @escaping () throws -> Decoder) {
-        self.factory = factory
-    }
-    
-    func container<Key>(keyedBy type: Key.Type) throws -> KeyedDecodingContainer<Key> where Key : CodingKey {
-        return try self.value.get().container(keyedBy: Key.self)
-    }
-    
-    func unkeyedContainer() throws -> UnkeyedDecodingContainer {
-        return try self.value.get().unkeyedContainer()
-    }
-    
-    func singleValueContainer() throws -> SingleValueDecodingContainer {
-        return try self.value.get().singleValueContainer()
-    }
-    
 }
 
-private final class LazyEncoder: Encoder {
-    let factory: () -> Encoder
-    var cached: Encoder?
-    var value: Encoder {
-        if let encoder = self.cached {
-            return encoder
-        } else {
-            let encoder = self.factory()
-            self.cached = encoder
-            return encoder
-        }
-    }
-    
+private struct ContainerEncoder: Encoder, SingleValueEncodingContainer {
+    var container: KeyedEncodingContainer<_ModelCodingKey>
+    let key: _ModelCodingKey
+
     var codingPath: [CodingKey] {
-        return self.value.codingPath
+        self.container.codingPath
     }
+
     var userInfo: [CodingUserInfoKey : Any] {
-        return self.value.userInfo
+        [:]
     }
-    
-    init(factory: @escaping () -> Encoder) {
-        self.factory = factory
-    }
-    
+
     func container<Key>(keyedBy type: Key.Type) -> KeyedEncodingContainer<Key> where Key : CodingKey {
-        return self.value.container(keyedBy: Key.self)
+        var container = self.container
+        return container.nestedContainer(keyedBy: Key.self, forKey: self.key)
     }
-    
+
     func unkeyedContainer() -> UnkeyedEncodingContainer {
-        return self.value.unkeyedContainer()
+        var container = self.container
+        return container.nestedUnkeyedContainer(forKey: self.key)
+    }
+
+    func singleValueContainer() -> SingleValueEncodingContainer {
+        self
     }
     
-    func singleValueContainer() -> SingleValueEncodingContainer {
-        return self.value.singleValueContainer()
+    mutating func encode<T>(_ value: T) throws where T : Encodable {
+        try self.container.encode(value, forKey: self.key)
+    }
+
+    mutating func encodeNil() throws {
+        try self.container.encodeNil(forKey: self.key)
     }
 }
 
@@ -247,10 +225,10 @@ extension AnyModel {
     }
 
     var anyID: AnyID {
-        guard let id = Mirror(reflecting: self).descendant("_id") else {
+        guard let id = Mirror(reflecting: self).descendant("_id") as? AnyID else {
             fatalError("id property must be declared using @ID")
         }
-        return id as! AnyID
+        return id
     }
 }
 
@@ -283,42 +261,5 @@ extension Model {
         return Self.query(on: database)
             .filter(\._$id == id)
             .first()
-    }
-}
-
-extension Model {
-    public func willCreate(on database: Database) -> EventLoopFuture<Void> {
-        return database.eventLoop.makeSucceededFuture(())
-    }
-    public func didCreate(on database: Database) -> EventLoopFuture<Void> {
-        return database.eventLoop.makeSucceededFuture(())
-    }
-
-    public func willUpdate(on database: Database) -> EventLoopFuture<Void> {
-        return database.eventLoop.makeSucceededFuture(())
-    }
-    public func didUpdate(on database: Database) -> EventLoopFuture<Void> {
-        return database.eventLoop.makeSucceededFuture(())
-    }
-
-    public func willDelete(on database: Database) -> EventLoopFuture<Void> {
-        return database.eventLoop.makeSucceededFuture(())
-    }
-    public func didDelete(on database: Database) -> EventLoopFuture<Void> {
-        return database.eventLoop.makeSucceededFuture(())
-    }
-
-    public func willRestore(on database: Database) -> EventLoopFuture<Void> {
-        return database.eventLoop.makeSucceededFuture(())
-    }
-    public func didRestore(on database: Database) -> EventLoopFuture<Void> {
-        return database.eventLoop.makeSucceededFuture(())
-    }
-
-    public func willSoftDelete(on database: Database) -> EventLoopFuture<Void> {
-        return database.eventLoop.makeSucceededFuture(())
-    }
-    public func didSoftDelete(on database: Database) -> EventLoopFuture<Void> {
-        return database.eventLoop.makeSucceededFuture(())
     }
 }
