@@ -703,7 +703,7 @@ public final class QueryBuilder<Model>
                 .forEach { $0.excludeDeleted(from: &query) }
         }
         
-        self.database.logger.info("\(self.query)")
+        self.database.logger.trace("\(self.query)")
 
         let done = self.database.execute(query: query) { row in
             assert(self.database.eventLoop.inEventLoop,
