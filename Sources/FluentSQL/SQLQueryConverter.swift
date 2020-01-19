@@ -241,10 +241,12 @@ public struct SQLQueryConverter {
         case .custom(let any):
             return custom(any)
         case .group(let filters, let relation):
+            // <item> OR <item> OR <item>
             let expression = SQLList(
                 items: filters.map(self.filter),
                 separator: self.relation(relation)
             )
+            // ( <expr> )
             return SQLGroupExpression(expression)
         }
     }

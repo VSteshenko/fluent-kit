@@ -42,15 +42,15 @@ extension AnyModel {
 private struct ContainerDecoder: Decoder, SingleValueDecodingContainer {
     let container: KeyedDecodingContainer<_ModelCodingKey>
     let key: _ModelCodingKey
-
+    
     var codingPath: [CodingKey] {
         self.container.codingPath
     }
-
+    
     var userInfo: [CodingUserInfoKey : Any] {
         [:]
     }
-
+    
     func container<Key>(keyedBy type: Key.Type) throws -> KeyedDecodingContainer<Key> where Key : CodingKey {
         try self.container.nestedContainer(keyedBy: Key.self, forKey: self.key)
     }
@@ -62,11 +62,11 @@ private struct ContainerDecoder: Decoder, SingleValueDecodingContainer {
     func singleValueContainer() throws -> SingleValueDecodingContainer {
         self
     }
-
+    
     func decode<T>(_ type: T.Type) throws -> T where T : Decodable {
         try self.container.decode(T.self, forKey: self.key)
     }
-
+    
     func decodeNil() -> Bool {
         do {
             return try self.container.decodeNil(forKey: self.key)
@@ -79,15 +79,15 @@ private struct ContainerDecoder: Decoder, SingleValueDecodingContainer {
 private struct ContainerEncoder: Encoder, SingleValueEncodingContainer {
     var container: KeyedEncodingContainer<_ModelCodingKey>
     let key: _ModelCodingKey
-
+    
     var codingPath: [CodingKey] {
         self.container.codingPath
     }
-
+    
     var userInfo: [CodingUserInfoKey : Any] {
         [:]
     }
-
+    
     func container<Key>(keyedBy type: Key.Type) -> KeyedEncodingContainer<Key> where Key : CodingKey {
         var container = self.container
         return container.nestedContainer(keyedBy: Key.self, forKey: self.key)
@@ -105,14 +105,19 @@ private struct ContainerEncoder: Encoder, SingleValueEncodingContainer {
     mutating func encode<T>(_ value: T) throws where T : Encodable {
         try self.container.encode(value, forKey: self.key)
     }
-
     mutating func encodeNil() throws {
         try self.container.encodeNil(forKey: self.key)
     }
 }
 
 extension Model {
-    static func key<Field>(for field: KeyPath<Self, Field>) -> String
+
+    /// Indicates whether the model has fields that have been set, but the model has not yet been saved to the database.
+    public var hasChanges: Bool {
+        return !self.input.isEmpty
+    }
+
+    public static func key<Field>(for field: KeyPath<Self, Field>) -> String
         where Field: FieldRepresentable
     {
         return Self.init()[keyPath: field].field.key

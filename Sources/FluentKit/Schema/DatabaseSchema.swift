@@ -71,7 +71,7 @@ public struct DatabaseSchema {
         case unique(fields: [FieldName])
         case foreignKey(fields: [FieldName], foreignSchema: String, foreignFields: [FieldName], onDelete: ForeignKeyAction, onUpdate: ForeignKeyAction)
         case custom(Any)
-        
+
         public enum ForeignKeyAction {
             case noAction
             case restrict
@@ -95,7 +95,7 @@ public struct DatabaseSchema {
         case string(schema: String, field: String)
         case custom(schema: Any, field: Any)
     }
-    
+
     public var action: Action
     public var schema: String
     public var createFields: [FieldDefinition]

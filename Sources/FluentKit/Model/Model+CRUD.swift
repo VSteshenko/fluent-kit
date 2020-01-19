@@ -6,7 +6,7 @@ extension Model {
             return self.create(on: database)
         }
     }
-
+    
     public func create(on database: Database) -> EventLoopFuture<Void> {
         return database.configuration.middleware.chainingTo(Self.self) { event, model, db in
             model.handle(event, on: db)
@@ -32,14 +32,15 @@ extension Model {
             try self.output(from: SavedInput(input).output(for: database))
         }
     }
-
+    
     public func update(on database: Database) -> EventLoopFuture<Void> {
         return database.configuration.middleware.chainingTo(Self.self) { event, model, db in
             model.handle(event, on: db)
         }.handle(.update, self, on: database)
     }
 
-    private func _update(on database: Database) -> EventLoopFuture<Void> {self.touchTimestamps(.update)
+    private func _update(on database: Database) -> EventLoopFuture<Void> {
+        self.touchTimestamps(.update)
         precondition(self._$id.exists)
         let input = self.input
         return Self.query(on: database)
@@ -51,7 +52,7 @@ extension Model {
                 try self.output(from: SavedInput(input).output(for: database))
         }
     }
-
+    
     public func delete(force: Bool = false, on database: Database) -> EventLoopFuture<Void> {
         if !force, let timestamp = self.timestamps.filter({ $0.1.trigger == .delete }).first {
             timestamp.1.touch()
@@ -149,18 +150,17 @@ extension Array where Element: FluentKit.Model {
 }
 
 // MARK: Private
-
 private struct SavedInput: DatabaseRow {
     var input: [String: DatabaseQuery.Value]
-
+    
     init(_ input: [String: DatabaseQuery.Value]) {
         self.input = input
     }
-
+    
     func contains(field: String) -> Bool {
         return self.input[field] != nil
     }
-
+    
     func decode<T>(field: String, as type: T.Type, for database: Database) throws -> T where T : Decodable {
         if let value = self.input[field] {
             // not in output, get from saved input
@@ -174,7 +174,7 @@ private struct SavedInput: DatabaseRow {
             throw FluentError.missingField(name: field)
         }
     }
-
+    
     var description: String {
         return self.input.description
     }

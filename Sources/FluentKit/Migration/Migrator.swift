@@ -120,8 +120,8 @@ public struct Migrator {
     
     private func prepare(_ item: Migrations.Item, batch: Int) -> EventLoopFuture<Void> {
         item.migration.prepare(on: self.database(item.id)).flatMap {
-        MigrationLog(name: item.migration.name, batch: batch)
-            .save(on: self.database(nil))
+            MigrationLog(name: item.migration.name, batch: batch)
+                .save(on: self.database(nil))
         }
     }
     

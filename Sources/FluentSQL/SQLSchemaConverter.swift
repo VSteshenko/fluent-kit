@@ -43,53 +43,55 @@ public struct SQLSchemaConverter {
     private func create(_ schema: DatabaseSchema) -> SQLExpression {
         var create = SQLCreateTable(name: self.name(schema.schema))
         create.columns = schema.createFields.map(self.fieldDefinition)
-        create.tableConstraints = schema.constraints.map(self.constraint)
+        create.tableConstraints = schema.constraints.map {
+            self.constraint($0, table: schema.schema)
+        }
         return create
     }
 
     private func name(_ string: String) -> SQLExpression {
         return SQLIdentifier(string)
     }
-
-    private func constraint(_ constraint: DatabaseSchema.Constraint) -> SQLExpression {
+    
+    private func constraint(_ constraint: DatabaseSchema.Constraint, table: String) -> SQLExpression {
         func identifier(_ fields: [DatabaseSchema.FieldName]) -> String {
-        return fields.map { field -> String in
-            switch field {
+            return fields.map { field -> String in
+                switch field {
                 case .custom:
                     return ""
                 case .string(let name):
-                    return name
+                    return "\(table).\(name)"
                 }
             }.joined(separator: "+")
-            }
+        }
 
-            switch constraint {
-            case .unique(let fields):
-                let name = identifier(fields)
-                return SQLConstraint(
-                    algorithm: SQLTableConstraintAlgorithm.unique(columns: fields.map(self.fieldName)),
-                    name: SQLIdentifier("uq:\(name)")
-                )
-            case .foreignKey(fields: let fields, foreignSchema: let parent, foreignFields: let parentFields, onDelete: let onDelete, onUpdate: let onUpdate):
-                let name = identifier(fields + parentFields)
+        switch constraint {
+        case .unique(let fields):
+            let name = identifier(fields)
+            return SQLConstraint(
+                algorithm: SQLTableConstraintAlgorithm.unique(columns: fields.map(self.fieldName)),
+                name: SQLIdentifier("uq:\(name)")
+            )
+        case .foreignKey(fields: let fields, foreignSchema: let parent, foreignFields: let parentFields, onDelete: let onDelete, onUpdate: let onUpdate):
+            let name = identifier(fields + parentFields)
 
-                let reference = SQLForeignKey(
-                    table: self.name(parent),
-                    columns: parentFields.map(self.fieldName),
-                    onDelete: sqlForeignKeyAction(onDelete),
-                    onUpdate: sqlForeignKeyAction(onUpdate)
-                )
+            let reference = SQLForeignKey(
+                table: self.name(parent),
+                columns: parentFields.map(self.fieldName),
+                onDelete: sqlForeignKeyAction(onDelete),
+                onUpdate: sqlForeignKeyAction(onUpdate)
+            )
 
-                return SQLConstraint(
-                    algorithm: SQLTableConstraintAlgorithm.foreignKey(
-                        columns: fields.map(self.fieldName),
-                        references: reference
-                    ),
-                    name: SQLIdentifier("fk:\(name)")
-                )
-            case .custom(let any):
-                return custom(any)
-            }
+            return SQLConstraint(
+                algorithm: SQLTableConstraintAlgorithm.foreignKey(
+                    columns: fields.map(self.fieldName),
+                    references: reference
+                ),
+                name: SQLIdentifier("fk:\(name)")
+            )
+        case .custom(let any):
+            return custom(any)
+        }
     }
 
     private func sqlForeignKeyAction(_ fkAction: DatabaseSchema.Constraint.ForeignKeyAction) -> SQLForeignKeyAction {

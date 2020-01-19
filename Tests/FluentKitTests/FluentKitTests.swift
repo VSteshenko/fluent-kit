@@ -125,7 +125,7 @@ final class FluentKitTests: XCTestCase {
             .create()
             .wait()
         XCTAssertEqual(db.sqlSerializers.count, 1)
-        XCTAssertEqual(db.sqlSerializers.first?.sql, #"CREATE TABLE "planets"("id" BIGINT, CONSTRAINT "uq:id" UNIQUE ("id"))"#)
+        XCTAssertEqual(db.sqlSerializers.first?.sql, #"CREATE TABLE "planets"("id" BIGINT, CONSTRAINT "uq:planets.id" UNIQUE ("id"))"#)
         db.reset()
 
         try db.schema("planets")
@@ -135,7 +135,7 @@ final class FluentKitTests: XCTestCase {
             .create()
             .wait()
         XCTAssertEqual(db.sqlSerializers.count, 1)
-        XCTAssertEqual(db.sqlSerializers.first?.sql, #"CREATE TABLE "planets"("id" BIGINT, "name" TEXT, CONSTRAINT "uq:id+name" UNIQUE ("id", "name"))"#)
+        XCTAssertEqual(db.sqlSerializers.first?.sql, #"CREATE TABLE "planets"("id" BIGINT, "name" TEXT, CONSTRAINT "uq:planets.id+planets.name" UNIQUE ("id", "name"))"#)
     }
 
     func testForeignKeyTableConstraint() throws {
@@ -146,7 +146,7 @@ final class FluentKitTests: XCTestCase {
             .create()
             .wait()
         XCTAssertEqual(db.sqlSerializers.count, 1)
-        XCTAssertEqual(db.sqlSerializers.first?.sql, #"CREATE TABLE "planets"("galaxy_id" BIGINT, CONSTRAINT "fk:galaxy_id+id" FOREIGN KEY ("galaxy_id") REFERENCES "galaxies" ("id") ON DELETE NO ACTION ON UPDATE NO ACTION)"#)
+        XCTAssertEqual(db.sqlSerializers.first?.sql, #"CREATE TABLE "planets"("galaxy_id" BIGINT, CONSTRAINT "fk:planets.galaxy_id+planets.id" FOREIGN KEY ("galaxy_id") REFERENCES "galaxies" ("id") ON DELETE NO ACTION ON UPDATE NO ACTION)"#)
         db.reset()
 
         try db.schema("planets")
@@ -160,7 +160,7 @@ final class FluentKitTests: XCTestCase {
             .create()
             .wait()
         XCTAssertEqual(db.sqlSerializers.count, 1)
-        XCTAssertEqual(db.sqlSerializers.first?.sql, #"CREATE TABLE "planets"("galaxy_id" BIGINT, CONSTRAINT "fk:galaxy_id+id" FOREIGN KEY ("galaxy_id") REFERENCES "galaxies" ("id") ON DELETE RESTRICT ON UPDATE CASCADE)"#)
+        XCTAssertEqual(db.sqlSerializers.first?.sql, #"CREATE TABLE "planets"("galaxy_id" BIGINT, CONSTRAINT "fk:planets.galaxy_id+planets.id" FOREIGN KEY ("galaxy_id") REFERENCES "galaxies" ("id") ON DELETE RESTRICT ON UPDATE CASCADE)"#)
     }
     
     func testDecodeWithoutID() throws {
@@ -213,25 +213,26 @@ final class FluentKitTests: XCTestCase {
         try [Planet2]().create(on: db).wait()
         XCTAssertEqual(db.sqlSerializers.count, 0)
     }
+
 }
 
 final class Planet2: Model {
     static let schema = "planets"
-
+    
     @ID(key: "id")
     var id: Int?
-
+    
     @Field(key: "name")
     var name: String
-
+    
     @Field(key: "nickname")
     var nickName: String?
-
+    
     @Field(key: "moon_count")
     var moonCount: Int
-
+    
     init() { }
-
+    
     init(id: Int? = nil, name: String, moonCount: Int) {
         self.id = id
         self.name = name

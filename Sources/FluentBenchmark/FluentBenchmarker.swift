@@ -8,7 +8,7 @@ public final class FluentBenchmarker {
     public init(database: Database) {
         self.database = database
     }
-
+    
     public func testAll() throws {
         try self.testCreate()
         try self.testRead()
@@ -49,8 +49,12 @@ public final class FluentBenchmarker {
         try self.testArray()
         try self.testPerformance()
         try self.testSoftDeleteWithQuery()
+        try self.testDuplicatedUniquePropertyName()
+        try self.testEmptyEagerLoadChildren()
+        try self.testUInt8BackedEnum()
+        try self.testRange()
     }
-
+    
     public func testCreate() throws {
         try self.runTest(#function, [
             GalaxyMigration()
@@ -61,14 +65,14 @@ public final class FluentBenchmarker {
             guard galaxy.id == 1 else {
                 throw Failure("unexpected galaxy id: \(galaxy)")
             }
-
+            
             guard let fetched = try Galaxy.query(on: self.database)
                 .filter(\.$name == "Messier 82")
                 .first()
                 .wait() else {
                     throw Failure("unexpected empty result set")
                 }
-
+            
             if fetched.name != galaxy.name {
                 throw Failure("unexpected name: \(galaxy) \(fetched)")
             }
@@ -77,7 +81,7 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testRead() throws {
         try runTest(#function, [
             GalaxyMigration(),
@@ -94,7 +98,7 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testUpdate() throws {
         try runTest(#function, [
             GalaxyMigration()
@@ -103,7 +107,7 @@ public final class FluentBenchmarker {
             try galaxy.save(on: self.database).wait()
             galaxy.name = "Milky Way"
             try galaxy.save(on: self.database).wait()
-
+            
             // verify
             let galaxies = try Galaxy.query(on: self.database).filter(\.$name == "Milky Way").all().wait()
             guard galaxies.count == 1 else {
@@ -114,7 +118,7 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testDelete() throws {
         try runTest(#function, [
             GalaxyMigration(),
@@ -122,7 +126,7 @@ public final class FluentBenchmarker {
             let galaxy = Galaxy(name: "Milky Way")
             try galaxy.save(on: self.database).wait()
             try galaxy.delete(on: self.database).wait()
-
+            
             // verify
             let galaxies = try Galaxy.query(on: self.database).all().wait()
             guard galaxies.count == 0 else {
@@ -130,7 +134,7 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testEagerLoadChildren() throws {
         try runTest(#function, [
             GalaxyMigration(),
@@ -156,7 +160,7 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testEagerLoadParent() throws {
         try runTest(#function, [
             GalaxyMigration(),
@@ -167,7 +171,7 @@ public final class FluentBenchmarker {
             let planets = try Planet.query(on: self.database)
                 .with(\.$galaxy)
                 .all().wait()
-
+            
             for planet in planets {
                 switch planet.name {
                 case "Earth":
@@ -183,7 +187,7 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testEagerLoadParentJoin() throws {
         try runTest(#function, [
             GalaxyMigration(),
@@ -194,7 +198,7 @@ public final class FluentBenchmarker {
             let planets = try Planet.query(on: self.database)
                 .with(\.$galaxy)
                 .all().wait()
-
+            
             for planet in planets {
                 switch planet.name {
                 case "Earth":
@@ -210,7 +214,7 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testEagerLoadParentJSON() throws {
         try runTest(#function, [
             GalaxyMigration(),
@@ -328,13 +332,13 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testMigrator() throws {
         try self.runTest(#function, []) {
             let migrations = Migrations()
             migrations.add(GalaxyMigration())
             migrations.add(PlanetMigration())
-
+            
             let migrator = Migrator(
                 databaseFactory: { _ in self.database },
                 migrations: migrations,
@@ -352,17 +356,17 @@ public final class FluentBenchmarker {
             }
 
             try migrator.revertAllBatches().wait()
-
+            
         }
     }
-
+    
     public func testMigratorError() throws {
         try self.runTest(#function, []) {
             let migrations = Migrations()
             migrations.add(GalaxyMigration())
             migrations.add(ErrorMigration())
             migrations.add(PlanetMigration())
-
+            
             let migrator = Migrator(
                 databaseFactory: { _ in self.database },
                 migrations: migrations,
@@ -379,7 +383,7 @@ public final class FluentBenchmarker {
             try migrator.revertAllBatches().wait()
         }
     }
-
+    
     public func testJoin() throws {
         try runTest(#function, [
             GalaxyMigration(),
@@ -406,7 +410,7 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testBatchCreate() throws {
         try runTest(#function, [
             GalaxyMigration()
@@ -414,7 +418,7 @@ public final class FluentBenchmarker {
             let galaxies = Array("abcdefghijklmnopqrstuvwxyz").map { letter in
                 return Galaxy(name: .init(letter))
             }
-
+                
             try galaxies.create(on: self.database).wait()
             let count = try Galaxy.query(on: self.database).count().wait()
             guard count == 26 else {
@@ -422,7 +426,7 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testBatchUpdate() throws {
         try runTest(#function, [
             GalaxyMigration(),
@@ -430,7 +434,7 @@ public final class FluentBenchmarker {
         ]) {
             try Galaxy.query(on: self.database).set(\.$name, to: "Foo")
                 .update().wait()
-
+            
             let galaxies = try Galaxy.query(on: self.database).all().wait()
             for galaxy in galaxies {
                 guard galaxy.name == "Foo" else {
@@ -439,7 +443,7 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testNestedModel() throws {
         try runTest(#function, [
             UserMigration(),
@@ -448,7 +452,7 @@ public final class FluentBenchmarker {
             let users = try User.query(on: self.database)
                 .filter(\.$pet, "type", .equal, User.Pet.Animal.cat)
                 .all().wait()
-
+        
             guard let user = users.first, users.count == 1 else {
                 throw Failure("unexpected user count")
             }
@@ -480,7 +484,7 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testAggregates() throws {
         // seeded db
         try runTest(#function, [
@@ -536,7 +540,7 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testIdentifierGeneration() throws {
         try runTest(#function, [
             GalaxyMigration(),
@@ -558,7 +562,7 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testNullifyField() throws {
         final class Foo: Model {
             static let schema = "foos"
@@ -601,7 +605,7 @@ public final class FluentBenchmarker {
             guard foo.bar == nil else {
                 throw Failure("unexpected non-nil value")
             }
-
+            
             guard let fetched = try Foo.query(on: self.database)
                 .filter(\.$id == foo.id!)
                 .first().wait()
@@ -613,20 +617,20 @@ public final class FluentBenchmarker {
             }
         }
     }
-
+    
     public func testChunkedFetch() throws {
         try runTest(#function, [
             GalaxyMigration(),
         ]) {
             var fetched64: [Result<Galaxy, Error>] = []
             var fetched2047: [Result<Galaxy, Error>] = []
-
+            
             let saves = (1...512).map { i -> EventLoopFuture<Void> in
                 return Galaxy(name: "Milky Way \(i)")
                     .save(on: self.database)
             }
             try EventLoopFuture<Void>.andAllSucceed(saves, on: self.database.eventLoop).wait()
-
+            
             try Galaxy.query(on: self.database).chunk(max: 64) { chunk in
                 guard chunk.count == 64 else {
                     XCTFail("bad chunk count")
@@ -634,11 +638,11 @@ public final class FluentBenchmarker {
                 }
                 fetched64 += chunk
             }.wait()
-
+            
             guard fetched64.count == 512 else {
                 throw Failure("did not fetch all - only \(fetched64.count) out of 512")
             }
-
+            
             try Galaxy.query(on: self.database).chunk(max: 511) { chunk in
                 guard chunk.count == 511 || chunk.count == 1 else {
                     XCTFail("bad chunk count")
@@ -646,13 +650,13 @@ public final class FluentBenchmarker {
                 }
                 fetched2047 += chunk
             }.wait()
-
+            
             guard fetched2047.count == 512 else {
                 throw Failure("did not fetch all - only \(fetched2047.count) out of 512")
             }
         }
     }
-
+    
     public func testUniqueFields() throws {
         final class Foo: Model {
             static let schema = "foos"
@@ -682,7 +686,7 @@ public final class FluentBenchmarker {
                     .unique(on: "bar", "baz")
                     .create()
             }
-
+            
             func revert(on database: Database) -> EventLoopFuture<Void> {
                 return database.schema("foos").delete()
             }
@@ -821,7 +825,7 @@ public final class FluentBenchmarker {
 
             @Field(key: "name")
             var name: String
-
+            
             @Timestamp(key: "deletedAt", on: .delete)
             var deletedAt: Date?
 
@@ -831,43 +835,43 @@ public final class FluentBenchmarker {
                 self.name = name
             }
         }
-
+        
         struct UserMiddleware: ModelMiddleware {
             func create(model: User, on db: Database, next: AnyModelResponder) -> EventLoopFuture<Void> {
                 model.name = "B"
-
+                
                 return next.create(model, on: db).flatMap {
                     return db.eventLoop.makeFailedFuture(TestError(string: "didCreate"))
                 }
             }
-
+            
             func update(model: User, on db: Database, next: AnyModelResponder) -> EventLoopFuture<Void> {
                 model.name = "D"
-
+                
                 return next.update(model, on: db).flatMap {
                     return db.eventLoop.makeFailedFuture(TestError(string: "didUpdate"))
                 }
             }
-
+            
             func softDelete(model: User, on db: Database, next: AnyModelResponder) -> EventLoopFuture<Void> {
                 model.name = "E"
-
+                
                 return next.softDelete(model, on: db).flatMap {
                     return db.eventLoop.makeFailedFuture(TestError(string: "didSoftDelete"))
                 }
             }
-
+            
             func restore(model: User, on db: Database, next: AnyModelResponder) -> EventLoopFuture<Void> {
                 model.name = "F"
-
+                
                 return next.restore(model , on: db).flatMap {
                     return db.eventLoop.makeFailedFuture(TestError(string: "didRestore"))
                 }
             }
-
+            
             func delete(model: User, force: Bool, on db: Database, next: AnyModelResponder) -> EventLoopFuture<Void> {
                 model.name = "G"
-
+                
                 return next.delete(model, force: force, on: db).flatMap {
                     return db.eventLoop.makeFailedFuture(TestError(string: "didDelete"))
                 }
@@ -892,7 +896,7 @@ public final class FluentBenchmarker {
             UserMigration(),
         ]) {
             self.database.configuration.middleware.append(UserMiddleware())
-
+            
             let user = User(name: "A")
             // create
             do {
@@ -918,7 +922,7 @@ public final class FluentBenchmarker {
                 XCTAssertEqual(error.string, "didSoftDelete")
             }
             XCTAssertEqual(user.name, "E")
-
+            
             // restore
             do {
                 try user.restore(on: self.database).wait()
@@ -926,7 +930,7 @@ public final class FluentBenchmarker {
                 XCTAssertEqual(error.string, "didRestore")
             }
             XCTAssertEqual(user.name, "F")
-
+            
             // force delete
             do {
                 try user.delete(force: true, on: self.database).wait()
@@ -1006,7 +1010,6 @@ public final class FluentBenchmarker {
             init() { }
             init(id: UUID? = nil, title: String) {
                 self.id = id
-                self._id.exists = true
                 self.title = title
             }
         }
@@ -1196,30 +1199,30 @@ public final class FluentBenchmarker {
         ]) {
             let galaxies = try Galaxy.query(on: self.database)
                 .all().wait()
-
+            
             struct GalaxyKey: CodingKey, ExpressibleByStringLiteral {
                 var stringValue: String
                 var intValue: Int? {
                     return Int(self.stringValue)
                 }
-
+                
                 init(stringLiteral value: String) {
                     self.stringValue = value
                 }
-
+                
                 init?(stringValue: String) {
                     self.stringValue = stringValue
                 }
-
+                
                 init?(intValue: Int) {
                     self.stringValue = intValue.description
                 }
             }
-
+            
             struct GalaxyJSON: Codable {
                 var id: Int
                 var name: String
-
+                
                 init(from decoder: Decoder) throws {
                     let keyed = try decoder.container(keyedBy: GalaxyKey.self)
                     self.id = try keyed.decode(Int.self, forKey: "id")
@@ -1230,7 +1233,7 @@ public final class FluentBenchmarker {
 
             let encoded = try JSONEncoder().encode(galaxies)
             print(String(decoding: encoded, as: UTF8.self))
-
+            
             let decoded = try JSONDecoder().decode([GalaxyJSON].self, from: encoded)
             XCTAssertEqual(galaxies.map { $0.id }, decoded.map { $0.id })
             XCTAssertEqual(galaxies.map { $0.name }, decoded.map { $0.name })
@@ -1338,7 +1341,7 @@ public final class FluentBenchmarker {
                     XCTFail("unexpected name: \(user.name)")
                 }
             }
-
+            
             // test query with no ids
             // https://github.com/vapor/fluent-kit/issues/85
             let users2 = try User.query(on: self.database)
@@ -1349,7 +1352,7 @@ public final class FluentBenchmarker {
             XCTAssert(users2.first?.bestFriend == nil)
         }
     }
-
+  
     public func testFieldFilter() throws {
         // seeded db
         try runTest(#function, [
@@ -1396,7 +1399,7 @@ public final class FluentBenchmarker {
             XCTAssertEqual(averageSchools.count, 1)
         }
     }
-
+    
     public func testSameChildrenFromKey() throws {
         final class Foo: Model {
             static let schema = "foos"
@@ -1413,16 +1416,16 @@ public final class FluentBenchmarker {
                     return database.schema("foos").delete()
                 }
             }
-
+            
             @ID(key: "id")
             var id: Int?
 
             @Field(key: "name")
             var name: String
-
+            
             @Children(for: \.$foo)
             var bars: [Bar]
-
+            
             @Children(for: \.$foo)
             var bazs: [Baz]
 
@@ -1433,10 +1436,10 @@ public final class FluentBenchmarker {
                 self.name = name
             }
         }
-
+        
         final class Bar: Model {
             static let schema = "bars"
-
+        
             struct _Migration: Migration {
                 func prepare(on database: Database) -> EventLoopFuture<Void> {
                     return database.schema("bars")
@@ -1450,16 +1453,16 @@ public final class FluentBenchmarker {
                     return database.schema("bars").delete()
                 }
             }
-
+            
             @ID(key: "id")
             var id: Int?
 
             @Field(key: "bar")
             var bar: Int
-
+            
             @Parent(key: "foo_id")
             var foo: Foo
-
+            
             init() { }
 
             init(id: Int? = nil, bar: Int, fooID: Int) {
@@ -1468,10 +1471,10 @@ public final class FluentBenchmarker {
                 self.$foo.id = fooID
             }
         }
-
+        
         final class Baz: Model {
             static let schema = "bazs"
-
+        
             struct _Migration: Migration {
                 func prepare(on database: Database) -> EventLoopFuture<Void> {
                     return database.schema("bazs")
@@ -1485,16 +1488,16 @@ public final class FluentBenchmarker {
                     return database.schema("bazs").delete()
                 }
             }
-
+            
             @ID(key: "id")
             var id: Int?
 
             @Field(key: "baz")
             var baz: Double
-
+            
             @Parent(key: "foo_id")
             var foo: Foo
-
+            
             init() { }
 
             init(id: Int? = nil, baz: Double, fooID: Int) {
@@ -1514,12 +1517,12 @@ public final class FluentBenchmarker {
             try bar.save(on: self.database).wait()
             let baz = Baz(baz: 3.14, fooID: foo.id!)
             try baz.save(on: self.database).wait()
-
+            
             let foos = try Foo.query(on: self.database)
                 .with(\.$bars)
                 .with(\.$bazs)
                 .all().wait()
-
+            
             for foo in foos {
                 XCTAssertEqual(foo.bars[0].bar, 42)
                 XCTAssertEqual(foo.bazs[0].baz, 3.14)
@@ -1541,7 +1544,7 @@ public final class FluentBenchmarker {
                         .field("id", .uuid, .identifier(auto: false))
                         .field("bar", .array(of: .int), .required)
                         .field("baz", .array(of: .string))
-                        .field("qux", .json, .required)
+                        .field("qux", .array(of: .json), .required)
                         .create()
                 }
 
@@ -1724,20 +1727,154 @@ public final class FluentBenchmarker {
         }
     }
 
-    // MARK: Utilities
+    // https://github.com/vapor/fluent-kit/issues/112
+    public func testDuplicatedUniquePropertyName() throws {
+        struct Foo: Migration {
+            func prepare(on database: Database) -> EventLoopFuture<Void> {
+                database.schema("foos")
+                    .field("name", .string)
+                    .unique(on: "name")
+                    .create()
+            }
 
+            func revert(on database: Database) -> EventLoopFuture<Void> {
+                database.schema("foos").delete()
+            }
+        }
+        struct Bar: Migration {
+            func prepare(on database: Database) -> EventLoopFuture<Void> {
+                database.schema("bars")
+                    .field("name", .string)
+                    .unique(on: "name")
+                    .create()
+            }
+
+            func revert(on database: Database) -> EventLoopFuture<Void> {
+                database.schema("bars").delete()
+            }
+        }
+        try runTest(#function, [
+            Foo(),
+            Bar()
+        ]) {
+            //
+        }
+    }
+    
+    // https://github.com/vapor/fluent-kit/issues/117
+    public func testEmptyEagerLoadChildren() throws {
+        try runTest(#function, [
+            GalaxyMigration(),
+            PlanetMigration(),
+            GalaxySeed(),
+            PlanetSeed()
+        ]) {
+            let galaxies = try Galaxy.query(on: self.database)
+                .filter(\.$name == "foo")
+                .with(\.$planets)
+                .all().wait()
+
+            XCTAssertEqual(galaxies.count, 0)
+        }
+    }
+    
+    public func testUInt8BackedEnum() throws {
+        enum Bar: UInt8, Codable {
+            case baz, qux
+        }
+        final class Foo: Model {
+            static let schema = "foos"
+
+            struct _Migration: Migration {
+                func prepare(on database: Database) -> EventLoopFuture<Void> {
+                    return database.schema("foos")
+                        .field("id", .int, .identifier(auto: true))
+                        .field("bar", .uint8, .required)
+                        .create()
+                }
+
+                func revert(on database: Database) -> EventLoopFuture<Void> {
+                    return database.schema("foos").delete()
+                }
+            }
+            
+            @ID(key: "id")
+            var id: Int?
+
+            @Field(key: "bar")
+            var bar: Bar
+
+            init() { }
+
+            init(id: Int? = nil, bar: Bar) {
+                self.id = id
+                self.bar = bar
+            }
+        }
+        try runTest(#function, [
+            Foo._Migration()
+        ]) {
+            let foo = Foo(bar: .baz)
+            try foo.save(on: self.database).wait()
+            
+            let fetched = try Foo.find(foo.id, on: self.database).wait()
+            XCTAssertEqual(fetched?.bar, .baz)
+        }
+    }
+
+    public func testRange() throws {
+        try runTest(#function, [
+            GalaxyMigration(),
+            PlanetMigration(),
+            GalaxySeed(),
+            PlanetSeed()
+        ]) {
+            do {
+                let planets = try Planet.query(on: self.database)
+                    .range(2..<5)
+                    .sort(\.$name)
+                    .all().wait()
+                XCTAssertEqual(planets.count, 3)
+                XCTAssertEqual(planets[0].name, "Mars")
+            }
+            do {
+                let planets = try Planet.query(on: self.database)
+                    .range(...5)
+                    .sort(\.$name)
+                    .all().wait()
+                XCTAssertEqual(planets.count, 6)
+            }
+            do {
+                let planets = try Planet.query(on: self.database)
+                    .range(..<5)
+                    .sort(\.$name)
+                    .all().wait()
+                XCTAssertEqual(planets.count, 5)
+            }
+            do {
+                let planets = try Planet.query(on: self.database)
+                    .range(..<5)
+                    .sort(\.$name)
+                    .all().wait()
+                XCTAssertEqual(planets.count, 5)
+            }
+        }
+    }
+
+    // MARK: Utilities
+    
     struct Failure: Error {
         let reason: String
         let line: UInt
         let file: StaticString
-
+        
         init(_ reason: String, line: UInt = #line, file: StaticString = #file) {
             self.reason = reason
             self.line = line
             self.file = file
         }
     }
-
+    
     private func runTest(_ name: String, _ migrations: [Migration], _ test: () throws -> ()) throws {
         self.log("Running \(name)...")
         for migration in migrations {
@@ -1765,7 +1902,7 @@ public final class FluentBenchmarker {
             throw error
         }
     }
-
+    
     private func log(_ message: String) {
         print("[FluentBenchmark] \(message)")
     }

@@ -25,6 +25,30 @@ public final class QueryBuilder<Model>
         self.joinedModels = []
     }
 
+    private init(
+        query: DatabaseQuery,
+        database: Database,
+        eagerLoads: EagerLoads,
+        includeDeleted: Bool,
+        joinedModels: [AnyModel]
+    ) {
+        self.query = query
+        self.database = database
+        self.eagerLoads = eagerLoads
+        self.includeDeleted = includeDeleted
+        self.joinedModels = joinedModels
+    }
+
+    public func copy() -> QueryBuilder<Model> {
+        .init(
+            query: self.query,
+            database: self.database,
+            eagerLoads: self.eagerLoads,
+            includeDeleted: self.includeDeleted,
+            joinedModels: self.joinedModels
+        )
+    }
+
     // MARK: Eager Load
 
     @discardableResult
@@ -584,7 +608,8 @@ public final class QueryBuilder<Model>
     ) -> EventLoopFuture<Result>
         where Result: Codable
     {
-        self.query.fields = [.aggregate(.fields(
+        let copy = self.copy()
+        copy.query.fields = [.aggregate(.fields(
             method: method,
             fields: [.field(
                 path: [fieldName],
@@ -593,7 +618,7 @@ public final class QueryBuilder<Model>
             ]
         ))]
         
-        return self.first().flatMapThrowing { res in
+        return copy.first().flatMapThrowing { res in
             guard let res = res else {
                 throw FluentError.noResults
             }
@@ -675,12 +700,17 @@ public final class QueryBuilder<Model>
         // if eager loads exist, run them, and update models
         if !self.eagerLoads.requests.isEmpty {
             return done.flatMap {
-                return .andAllSucceed(self.eagerLoads.requests.values.map { eagerLoad in
+                // don't run eager loads if result set was empty
+                guard !all.isEmpty else {
+                    return self.database.eventLoop.makeSucceededFuture(())
+                }
+                // run eager loads
+                return EventLoopFuture<Void>.andAllSucceed(self.eagerLoads.requests.values.map { eagerLoad in
                     return eagerLoad.run(models: all, on: self.database)
-                }, on: self.database.eventLoop)
-            }.flatMapThrowing {
-                try all.forEach { model in
-                    try model.eagerLoad(from: self.eagerLoads)
+                }, on: self.database.eventLoop).flatMapThrowing {
+                    try all.forEach { model in
+                        try model.eagerLoad(from: self.eagerLoads)
+                    }
                 }
             }
         } else {

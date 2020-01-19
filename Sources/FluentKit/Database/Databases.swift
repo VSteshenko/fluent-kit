@@ -38,7 +38,7 @@ public final class Databases {
             self.defaultID = id
         }
     }
-
+    
     public struct Middleware {
         let databases: Databases
 
@@ -51,15 +51,15 @@ public final class Databases {
                 .append(middleware)
         }
     }
-
+    
     public var middleware: Middleware {
         .init(databases: self)
     }
-
+    
     public func driver(_ id: DatabaseID? = nil) -> DatabaseDriver? {
         self.drivers[id ?? self.getDefaultID()]
     }
-
+    
     public func `default`(to id: DatabaseID) {
         self.defaultID = id
     }

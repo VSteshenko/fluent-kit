@@ -10,19 +10,19 @@ extension AnyModelResponder {
     public func create(_ model: AnyModel, on db: Database) -> EventLoopFuture<Void> {
         return handle(.create, model, on: db)
     }
-
+    
     public func update(_ model: AnyModel, on db: Database) -> EventLoopFuture<Void> {
         return handle(.update, model, on: db)
     }
-
+    
     public func restore(_ model: AnyModel, on db: Database) -> EventLoopFuture<Void> {
         return handle(.restore, model, on: db)
     }
-
+    
     public func softDelete(_ model: AnyModel, on db: Database) -> EventLoopFuture<Void> {
         return handle(.softDelete, model, on: db)
     }
-
+    
     public func delete(_ model: AnyModel, force: Bool, on db: Database) -> EventLoopFuture<Void> {
         return handle(.delete(force), model, on: db)
     }

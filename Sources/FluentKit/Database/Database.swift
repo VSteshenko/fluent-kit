@@ -17,10 +17,11 @@ extension Database {
     public var configuration: DatabaseConfiguration {
         self.context.configuration
     }
+    
     public var logger: Logger {
         self.context.logger
     }
-
+    
     public var eventLoop: EventLoop {
         self.context.eventLoop
     }
@@ -42,7 +43,7 @@ public struct DatabaseContext {
     public let configuration: DatabaseConfiguration
     public let logger: Logger
     public let eventLoop: EventLoop
-
+    
     public init(
         configuration: DatabaseConfiguration,
         logger: Logger,

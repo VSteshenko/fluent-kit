@@ -4,7 +4,6 @@ import NIO
 import SQLKit
 
 public class DummyDatabaseForTestSQLSerializer: Database, SQLDatabase {
-    
     public var dialect: SQLDialect {
         DummyDatabaseDialect()
     }
@@ -61,7 +60,7 @@ struct DummyDatabaseDialect: SQLDialect {
     var name: String {
         "dummy db"
     }
-
+    
     var identifierQuote: SQLExpression {
         return SQLRaw("\"")
     }

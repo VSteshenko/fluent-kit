@@ -19,11 +19,11 @@ public struct DummyDatabase: Database {
         }
         return self.eventLoop.makeSucceededFuture(())
     }
-
+    
     public func withConnection<T>(_ closure: (Database) -> EventLoopFuture<T>) -> EventLoopFuture<T> {
         closure(self)
     }
-
+    
     public func execute(schema: DatabaseSchema) -> EventLoopFuture<Void> {
         self.eventLoop.makeSucceededFuture(())
     }
@@ -45,11 +45,10 @@ public final class DummyDatabaseDriver: DatabaseDriver {
     public func makeDatabase(with context: DatabaseContext) -> Database {
         DummyDatabase(context: context)
     }
-    
+
     public func shutdown() {
         self.didShutdown = true
     }
-
     deinit {
         assert(self.didShutdown, "DummyDatabase did not shutdown before deinit.")
     }
