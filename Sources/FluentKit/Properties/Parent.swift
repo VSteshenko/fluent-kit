@@ -1,8 +1,8 @@
 @propertyWrapper
-public final class Parent<To> where To: GenericModel {
+public final class Parent<To> where To: ParentRelatable {
     internal var eagerLoadedValue: EagerLoaded
     internal var eagerLoadRequest: EagerLoadRequest
-    @Field public var id: To.IDValue
+    @Field public var id: To.StoredIDValue
 
     public var wrappedValue: To {
         get {
@@ -26,13 +26,13 @@ public final class Parent<To> where To: GenericModel {
 }
 
 extension Parent {
-    internal enum EagerLoaded: CustomStringConvertible {
+    public enum EagerLoaded: CustomStringConvertible {
         case loaded(To)
         case notLoaded
 
-        var description: String {
+        public var description: String {
             switch self {
-            case let .loaded(model): return model.description
+            case let .loaded(model): return "loaded(\(model.description))"
             case .notLoaded: return "notLoaded"
             }
         }
@@ -40,7 +40,7 @@ extension Parent {
 }
 
 extension Parent: FieldRepresentable {
-    public var field: Field<To.IDValue> { self.$id }
+    public var field: Field<To.StoredIDValue> { self.$id }
 }
 
 extension Parent: AnyProperty {
@@ -85,7 +85,7 @@ extension Parent where To: Model {
     }
 }
 
-extension Parent where To: OptionalType, To.Wrapped: Model, To.IDValue == To.Wrapped.IDValue? {
+extension Parent where To: OptionalType, To.Wrapped: Model, To.StoredIDValue == To.Wrapped.IDValue? {
     public convenience init(key: String) {
         self.init(id: key, eagerLoadRequest: SubqueryEagerLoad(key: key))
     }
@@ -102,19 +102,29 @@ extension Parent where To: OptionalType, To.Wrapped: Model, To.IDValue == To.Wra
 
 // MARK: - Optionals
 
-public typealias GenericModel = ModelIdentifiable & Codable & CustomStringConvertible
+public protocol ParentRelatable: Codable, CustomStringConvertible {
+    associatedtype StoredIDValue: Codable, Hashable
 
-extension Optional: CustomStringConvertible where Wrapped: CustomStringConvertible {
-    public var description: String {
-        return self?.description ?? "nil"
+    static func defaultEagerLoaded(for id: StoredIDValue) -> Parent<Self>.EagerLoaded
+
+    var storedID: StoredIDValue { get }
+}
+
+
+extension Optional: ParentRelatable, CustomStringConvertible where Wrapped: Model {
+    public typealias StoredIDValue = Wrapped.IDValue?
+
+    public var description: String { (self?.description).map { "Optional(\($0))" } ?? "nil" }
+    public var storedID: Wrapped.IDValue? { self?.id }
+
+    public static func defaultEagerLoaded(for id: StoredIDValue) -> Parent<Self>.EagerLoaded {
+        return id.map { _ in .notLoaded } ?? .loaded(nil)
     }
 }
 
-extension Optional: ModelIdentifiable where Wrapped: ModelIdentifiable {
-    public typealias IDValue = Wrapped.IDValue?
+extension Model {
+    public var storedID: StoredIDValue { self.id! }
 
-    public var id: Wrapped.IDValue?? {
-        get { self?.id }
-        set { self?.id = newValue ?? nil }
-    }
+    public static func defaultEagerLoaded(for id: StoredIDValue) -> Parent<Self>.EagerLoaded { .notLoaded }
 }
+

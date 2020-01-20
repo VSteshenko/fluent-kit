@@ -86,7 +86,37 @@ public final class QueryBuilder<Model>
     }
 
     // MARK: Join
-    
+
+    @discardableResult
+    public func join<Value>(
+        _ field: KeyPath<Model, Parent<Optional<Value>>>,
+        alias: String? = nil
+    ) -> Self
+        where Value: FluentKit.Model
+    {
+        return self.join(
+            Value.self, Value.key(for: \._$id),
+            to: Model.self, Model.key(for: field.appending(path: \.$id)),
+            method: .inner,
+            alias: alias
+        )
+    }
+
+    @discardableResult
+    public func join<Value>(
+        _ field: KeyPath<Value, Parent<Optional<Model>>>,
+        alias: String? = nil
+    ) -> Self
+        where Value: FluentKit.Model
+    {
+        return self.join(
+            Value.self, Value.key(for: field.appending(path: \.$id)),
+            to: Model.self, Model.key(for: \._$id),
+            method: .inner,
+            alias: alias
+        )
+    }
+
     @discardableResult
     public func join<Value>(
         _ field: KeyPath<Model, Parent<Value>>,
@@ -101,22 +131,6 @@ public final class QueryBuilder<Model>
             alias: alias
         )
     }
-
-//    @discardableResult
-//    public func join<Value>(
-//        _ field: KeyPath<Model, Parent<Value>>,
-//        alias: String? = nil
-//    ) -> Self
-//        where Value: FluentKit.Model
-//    {
-//        fatalError()
-//        return self.join(
-//            Value.self, Value.key(for: \._$id),
-//            to: Model.self, Model.key(for: field.appending(path: \.$id)),
-//            method: .inner,
-//            alias: alias
-//        )
-//    }
 
     @discardableResult
     public func join<Value>(

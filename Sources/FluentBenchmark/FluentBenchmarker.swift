@@ -5,6 +5,7 @@ import XCTest
 
 public final class FluentBenchmarker {
     public let database: Database
+
     public init(database: Database) {
         self.database = database
     }
@@ -366,7 +367,7 @@ public final class FluentBenchmarker {
             migrations.add(GalaxyMigration())
             migrations.add(ErrorMigration())
             migrations.add(PlanetMigration())
-            
+
             let migrator = Migrator(
                 databaseFactory: { _ in self.database },
                 migrations: migrations,

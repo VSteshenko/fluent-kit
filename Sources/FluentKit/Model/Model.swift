@@ -14,9 +14,7 @@ public protocol ModelIdentifiable {
     var id: IDValue? { get set }
 }
 
-public protocol Model: AnyModel, ModelIdentifiable {
-
-}
+public protocol Model: AnyModel, ParentRelatable, ModelIdentifiable where StoredIDValue == IDValue { }
 
 extension AnyModel {
     // MARK: Codable
