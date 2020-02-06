@@ -76,11 +76,17 @@ extension Parent where To: Model {
     }
 
     public func get(on database: Database) -> EventLoopFuture<To> {
-        return self.query(on: database).first().flatMapThrowing { parent in
-            guard let parent = parent else {
-                throw FluentError.missingParent
+        switch self.eagerLoadedValue {
+        case .notLoaded:
+            return self.query(on: database).first().flatMapThrowing { parent in
+                guard let parent = parent else {
+                    throw FluentError.missingParent
+                }
+                self.eagerLoadedValue = .loaded(parent)
+                return parent
             }
-            return parent
+        case let .loaded(value):
+            return database.eventLoop.makeSucceededFuture(value)
         }
     }
 }
