@@ -26,8 +26,8 @@ extension Model {
         return promise.futureResult.flatMapThrowing { output in
             var input = self.input
             if self._$id.generator == .database {
-                let id = try output.decode("fluentID", as: Self.IDValue.self)
-                input[Self.key(for: \._$id)] = .bind(id)
+                let idKey = Self.key(for: \._$id)
+                input[idKey] = try .bind(output.decode(idKey, as: Self.IDValue.self))
             }
             try self.output(from: SavedInput(input).output(for: database))
         }
