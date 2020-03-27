@@ -34,10 +34,12 @@ public struct Migrator {
     // MARK: Setup
     
     public func setupIfNeeded() -> EventLoopFuture<Void> {
-        MigrationLog.query(on: self.database(nil)).all().map { migrations in
-            ()
-        }.flatMapError { error in
-            MigrationLog.migration.prepare(on: self.database(nil))
+        self.database(nil).withConnection { conn in
+            MigrationLog.query(on: conn).all().map { migrations in
+                ()
+            }.flatMapError { error in
+                MigrationLog.migration.prepare(on: conn)
+            }
         }
     }
     
@@ -119,64 +121,82 @@ public struct Migrator {
     // MARK: Private
     
     private func prepare(_ item: Migrations.Item, batch: Int) -> EventLoopFuture<Void> {
-        item.migration.prepare(on: self.database(item.id)).flatMap {
-            MigrationLog(name: item.migration.name, batch: batch)
-                .save(on: self.database(nil))
+        self.database(item.id).withConnection { conn in
+            item.migration.prepare(on: conn)
+        }.flatMap {
+            self.database(nil).withConnection { conn in
+                MigrationLog(name: item.migration.name, batch: batch)
+                    .save(on: conn)
+            }
         }
     }
     
     private func revert(_ item: Migrations.Item) -> EventLoopFuture<Void> {
-        item.migration.revert(on: self.database(item.id)).flatMap {
-            MigrationLog.query(on: self.database(nil))
-                .filter(\.$name == item.migration.name)
-                .delete()
+        self.database(item.id).withConnection { conn in
+            item.migration.revert(on: conn)
+        }.flatMap {
+            self.database(nil).withConnection { conn in
+                MigrationLog.query(on: conn)
+                    .filter(\.$name == item.migration.name)
+                    .delete()
+            }
         }
     }
     
     private func revertMigrationLog() -> EventLoopFuture<Void> {
-        MigrationLog.migration.revert(on: self.database(nil))
+        self.database(nil).withConnection { conn in
+            MigrationLog.migration.revert(on: conn)
+        }
     }
     
     private func lastBatchNumber() -> EventLoopFuture<Int> {
-        MigrationLog.query(on: self.database(nil)).sort(\.$batch, .descending).first().map { log in
-            log?.batch ?? 0
+        self.database(nil).withConnection { conn in
+            MigrationLog.query(on: conn).sort(\.$batch, .descending).first().map { log in
+                log?.batch ?? 0
+            }
         }
     }
     
     private func preparedMigrations() -> EventLoopFuture<[Migrations.Item]> {
-        MigrationLog.query(on: self.database(nil)).all().map { logs -> [Migrations.Item] in
-            logs.compactMap { log in
-                if let item = self.migrations.storage.filter({ $0.migration.name == log.name }).first {
-                    return item
-                } else {
-                    print("No registered migration found for \(log.name)")
-                    return nil
-                }
-            }.reversed()
+        self.database(nil).withConnection { conn in
+            MigrationLog.query(on: conn).all().map { logs -> [Migrations.Item] in
+                logs.compactMap { log in
+                    if let item = self.migrations.storage.filter({ $0.migration.name == log.name }).first {
+                        return item
+                    } else {
+                        print("No registered migration found for \(log.name)")
+                        return nil
+                    }
+                }.reversed()
+            }
         }
     }
     
     private func preparedMigrations(batch: Int) -> EventLoopFuture<[Migrations.Item]> {
-        MigrationLog.query(on: self.database(nil)).filter(\.$batch == batch).all().map { logs in
-            logs.compactMap { log in
-                if let item = self.migrations.storage.filter({ $0.migration.name == log.name }).first {
-                    return item
-                } else {
-                    print("No registered migration found for \(log.name)")
-                    return nil
-                }
-            }.reversed()
+        self.database(nil).withConnection { conn in
+            MigrationLog.query(on: conn).filter(\.$batch == batch).all().map { logs in
+                logs.compactMap { log in
+                    if let item = self.migrations.storage.filter({ $0.migration.name == log.name }).first {
+                        return item
+                    } else {
+                        print("No registered migration found for \(log.name)")
+                        return nil
+                    }
+                }.reversed()
+            }
         }
     }
     
     private func unpreparedMigrations() -> EventLoopFuture<[Migrations.Item]> {
-        return MigrationLog.query(on: self.database(nil)).all().map { logs -> [Migrations.Item] in
-            return self.migrations.storage.compactMap { item in
-                if logs.filter({ $0.name == item.migration.name }).count == 0 {
-                    return item
-                } else {
-                    // log found, this has been prepared
-                    return nil
+        self.database(nil).withConnection { conn in
+            return MigrationLog.query(on: conn).all().map { logs -> [Migrations.Item] in
+                return self.migrations.storage.compactMap { item in
+                    if logs.filter({ $0.name == item.migration.name }).count == 0 {
+                        return item
+                    } else {
+                        // log found, this has been prepared
+                        return nil
+                    }
                 }
             }
         }
