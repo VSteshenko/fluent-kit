@@ -1,136 +1,158 @@
+extension Model {
+    public typealias Parent<To> = ParentProperty<Self, To>
+        where To: FluentKit.Model
+}
+
 @propertyWrapper
-public final class Parent<To> where To: ParentRelatable {
-    internal var eagerLoadedValue: EagerLoaded
-    internal var eagerLoadRequest: EagerLoadRequest
-    @Field public var id: To.StoredIDValue
+public final class ParentProperty<From, To>
+    where From: Model, To: Model
+{
+    @FieldProperty<From, To.IDValue>
+    public var id: To.IDValue
 
     public var wrappedValue: To {
         get {
-            switch self.eagerLoadedValue {
-            case .notLoaded: fatalError("Parent relation not eager loaded, use $ prefix to access")
-            case let .loaded(value): return value
+            guard let value = self.value else {
+                fatalError("Parent relation not eager loaded, use $ prefix to access: \(name)")
             }
+            return value
         }
-        set {
-            fatalError("use $ prefix to access")
-        }
+        set { fatalError("use $ prefix to access") }
     }
 
-    public var projectedValue: Parent<To> { self }
-
-    private init(id: String, eagerLoadRequest: EagerLoadRequest) {
-        self.eagerLoadedValue = .notLoaded
-        self.eagerLoadRequest = eagerLoadRequest
-        self._id = Field(key: id)
+    public var projectedValue: ParentProperty<From, To> {
+        return self
     }
-}
 
-extension Parent {
-    public enum EagerLoaded: CustomStringConvertible {
-        case loaded(To)
-        case notLoaded
+    public var value: To?
 
-        public var description: String {
-            switch self {
-            case let .loaded(model): return "loaded(\(model.description))"
-            case .notLoaded: return "notLoaded"
-            }
-        }
+    public init(key: FieldKey) {
+        self._id = .init(key: key)
+    }
+
+    public func query(on database: Database) -> QueryBuilder<To> {
+        return To.query(on: database)
+            .filter(\._$id == self.id)
     }
 }
 
-extension Parent: FieldRepresentable {
-    public var field: Field<To.StoredIDValue> { self.$id }
+extension ParentProperty: Relation {
+    public var name: String {
+        "Parent<\(From.self), \(To.self)>(key: \(self.$id.key))"
+    }
+
+    public func load(on database: Database) -> EventLoopFuture<Void> {
+        self.query(on: database).first().map {
+            self.value = $0
+        }
+    }
 }
 
-extension Parent: AnyProperty {
-    func encode(to encoder: Encoder) throws {
+extension ParentProperty: PropertyProtocol {
+    public typealias Model = From
+    public typealias Value = To
+}
+
+extension ParentProperty: AnyProperty {
+    public var nested: [AnyProperty] {
+        [self.$id]
+    }
+
+    public var path: [FieldKey] {
+        []
+    }
+    
+    public func input(to input: inout DatabaseInput) {
+        self.$id.input(to: &input)
+    }
+
+    public func output(from output: DatabaseOutput) throws {
+        try self.$id.output(from: output)
+    }
+
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
-
-        if case let .loaded(parent) = self.eagerLoadedValue {
+        if let parent = self.value {
             try container.encode(parent)
         } else {
-            try container.encode([self.$id.key: self.id])
+            try container.encode([
+                "id": self.id
+            ])
         }
     }
 
-    func decode(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: _ModelCodingKey.self)
-        try self.$id.decode(from: container.superDecoder(forKey: .string(self.$id.key)))
+    public func decode(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: ModelCodingKey.self)
+        try self.$id.decode(from: container.superDecoder(forKey: .string("id")))
         // TODO: allow for nested decoding
     }
 }
 
-extension Parent: AnyField { }
-
-
-// MARK: - Specialization
-
-extension Parent where To: Model {
-    public convenience init(key: String) {
-        self.init(id: key, eagerLoadRequest: SubqueryEagerLoad(key: key))
+extension ParentProperty: EagerLoadable {
+    public static func eagerLoad<Builder>(
+        _ relationKey: KeyPath<From, From.Parent<To>>,
+        to builder: Builder
+    )
+        where Builder: EagerLoadBuilder, Builder.Model == From
+    {
+        let loader = ParentEagerLoader(relationKey: relationKey)
+        builder.add(loader: loader)
     }
 
-    public func query(on database: Database) -> QueryBuilder<To> {
-        return To.query(on: database).filter(\._$id == self.id)
-    }
 
-    public func get(on database: Database) -> EventLoopFuture<To> {
-        switch self.eagerLoadedValue {
-        case .notLoaded:
-            return self.query(on: database).first().flatMapThrowing { parent in
-                guard let parent = parent else {
-                    throw FluentError.missingParent
-                }
-                self.eagerLoadedValue = .loaded(parent)
-                return parent
+    public static func eagerLoad<Loader, Builder>(
+        _ loader: Loader,
+        through: KeyPath<From, From.Parent<To>>,
+        to builder: Builder
+    ) where
+        Loader: EagerLoader,
+        Loader.Model == To,
+        Builder: EagerLoadBuilder,
+        Builder.Model == From
+    {
+        let loader = ThroughParentEagerLoader(relationKey: through, loader: loader)
+        builder.add(loader: loader)
+    }
+}
+
+private struct ParentEagerLoader<From, To>: EagerLoader
+    where From: Model, To: Model
+{
+    let relationKey: KeyPath<From, From.Parent<To>>
+
+    func run(models: [From], on database: Database) -> EventLoopFuture<Void> {
+        let ids = models.map {
+            $0[keyPath: self.relationKey].id
+        }
+
+        guard !ids.isEmpty else {
+            return database.eventLoop.makeSucceededFuture(())
+        }
+
+        return To.query(on: database)
+            .filter(\._$id ~~ Set(ids))
+            .all()
+            .map
+        {
+            for model in models {
+                model[keyPath: self.relationKey].value = $0.filter {
+                    $0.id == model[keyPath: self.relationKey].id
+                }.first
             }
-        case let .loaded(value):
-            return database.eventLoop.makeSucceededFuture(value)
         }
     }
 }
 
-extension Parent where To: OptionalType, To.Wrapped: Model, To.StoredIDValue == To.Wrapped.IDValue? {
-    public convenience init(key: String) {
-        self.init(id: key, eagerLoadRequest: SubqueryEagerLoad(key: key))
-    }
+private struct ThroughParentEagerLoader<From, Through, Loader>: EagerLoader
+    where From: Model, Loader: EagerLoader, Loader.Model == Through
+{
+    let relationKey: KeyPath<From, From.Parent<Through>>
+    let loader: Loader
 
-    public func query(on database: Database) -> QueryBuilder<To.Wrapped> {
-        return To.Wrapped.query(on: database).filter(\To.Wrapped._$id == self.id)
-    }
-
-    public func get(on database: Database) -> EventLoopFuture<To> {
-        return self.query(on: database).first().flatMapThrowing { parent in parent as! To }
-    }
-}
-
-
-// MARK: - Optionals
-
-public protocol ParentRelatable: Codable, CustomStringConvertible {
-    associatedtype StoredIDValue: Codable, Hashable
-
-    static func defaultEagerLoaded(for id: StoredIDValue) -> Parent<Self>.EagerLoaded
-
-    var storedID: StoredIDValue { get }
-}
-
-
-extension Optional: ParentRelatable, CustomStringConvertible where Wrapped: Model {
-    public typealias StoredIDValue = Wrapped.IDValue?
-
-    public var description: String { (self?.description).map { "Optional(\($0))" } ?? "nil" }
-    public var storedID: Wrapped.IDValue? { self?.id }
-
-    public static func defaultEagerLoaded(for id: StoredIDValue) -> Parent<Self>.EagerLoaded {
-        return id.map { _ in .notLoaded } ?? .loaded(nil)
+    func run(models: [From], on database: Database) -> EventLoopFuture<Void> {
+        let throughs = models.map {
+            $0[keyPath: self.relationKey].value!
+        }
+        return self.loader.run(models: throughs, on: database)
     }
 }
-
-extension Model {
-    public var storedID: StoredIDValue { self.id! }
-
-    public static func defaultEagerLoaded(for id: StoredIDValue) -> Parent<Self>.EagerLoaded { .notLoaded }
-}
-

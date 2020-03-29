@@ -9,7 +9,7 @@ public protocol AnyModelMiddleware {
 
 public protocol ModelMiddleware: AnyModelMiddleware {
     associatedtype Model: FluentKit.Model
-
+    
     func create(model: Model, on db: Database, next: AnyModelResponder) -> EventLoopFuture<Void>
     func update(model: Model, on db: Database, next: AnyModelResponder) -> EventLoopFuture<Void>
     func delete(model: Model, force: Bool, on db: Database, next: AnyModelResponder) -> EventLoopFuture<Void>
@@ -22,7 +22,7 @@ extension ModelMiddleware {
         guard let modelType = model as? Model else {
             return next.handle(event, model, on: db)
         }
-
+        
         switch event {
         case .create:
             return create(model: modelType, on: db, next: next)
@@ -77,7 +77,7 @@ extension Array where Element == AnyModelMiddleware {
 private struct ModelMiddlewareResponder: AnyModelResponder {
     var middleware: AnyModelMiddleware
     var responder: AnyModelResponder
-
+    
     func handle(_ event: ModelEvent, _ model: AnyModel, on db: Database) -> EventLoopFuture<Void> {
         return self.middleware.handle(event, model, on: db, chainingTo: responder)
     }

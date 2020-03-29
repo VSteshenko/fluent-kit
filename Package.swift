@@ -4,18 +4,18 @@ import PackageDescription
 let package = Package(
     name: "fluent-kit",
     platforms: [
-        .macOS(.v10_15)
+       .macOS(.v10_15)
     ],
     products: [
         .library(name: "FluentKit", targets: ["FluentKit"]),
         .library(name: "FluentBenchmark", targets: ["FluentBenchmark"]),
         .library(name: "FluentSQL", targets: ["FluentSQL"]),
-//        .library(name: "XCTFluent", targets: ["XCTFluent"]),
+        .library(name: "XCTFluent", targets: ["XCTFluent"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
-        .package(url: "https://github.com/vapor/sql-kit.git", from: "3.0.0-beta.2"),
+        .package(url: "https://github.com/vapor/sql-kit.git", from: "3.0.0-rc.1"),
     ],
     targets: [
         .target(name: "FluentKit", dependencies: [
@@ -30,13 +30,13 @@ let package = Package(
             .target(name: "FluentKit"),
             .product(name: "SQLKit", package: "sql-kit"),
         ]),
-//        .target(name: "XCTFluent", dependencies: [
-//            .target(name: "FluentKit")
-//        ]),
+        .target(name: "XCTFluent", dependencies: [
+            .target(name: "FluentKit")
+        ]),
         .testTarget(name: "FluentKitTests", dependencies: [
             .target(name: "FluentBenchmark"),
             .target(name: "FluentSQL"),
-//            .target(name: "XCTFluent")
+            .target(name: "XCTFluent")
         ]),
     ]
 )

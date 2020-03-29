@@ -1,6 +1,5 @@
 public protocol SQLConverterDelegate {
     func customDataType(_ dataType: DatabaseSchema.DataType) -> SQLExpression?
-    func nestedFieldExpression(_ column: String, _ path: [String]) -> SQLExpression
 }
 
 public struct SQLSchemaConverter {
@@ -8,7 +7,7 @@ public struct SQLSchemaConverter {
     public init(delegate: SQLConverterDelegate) {
         self.delegate = delegate
     }
-
+    
     public func convert(_ schema: DatabaseSchema) -> SQLExpression {
         switch schema.action {
         case .create:
@@ -21,37 +20,39 @@ public struct SQLSchemaConverter {
             return self.execute(schema, sql)
         }
     }
-
+    
     // MARK: Private
 
     private func execute(_ schema: DatabaseSchema, _ sql: String) -> SQLExpression {
         let sql = SQLRaw(sql)
         return sql
     }
-
+    
     private func update(_ schema: DatabaseSchema) -> SQLExpression {
         var update = SQLAlterTable(name: self.name(schema.schema))
         update.addColumns = schema.createFields.map(self.fieldDefinition)
         update.dropColumns = schema.deleteFields.map(self.fieldName)
-        // todo:
-        // update.modifyColumns
+        update.modifyColumns = schema.updateFields.map(self.fieldUpdate)
         return update
     }
-
+    
     private func delete(_ schema: DatabaseSchema) -> SQLExpression {
         let delete = SQLDropTable(table: self.name(schema.schema))
         return delete
     }
-
+    
     private func create(_ schema: DatabaseSchema) -> SQLExpression {
         var create = SQLCreateTable(name: self.name(schema.schema))
         create.columns = schema.createFields.map(self.fieldDefinition)
         create.tableConstraints = schema.constraints.map {
             self.constraint($0, table: schema.schema)
         }
+        if !schema.exclusiveCreate {
+            create.ifNotExists = true
+        }
         return create
     }
-
+    
     private func name(_ string: String) -> SQLExpression {
         return SQLIdentifier(string)
     }
@@ -62,8 +63,8 @@ public struct SQLSchemaConverter {
                 switch field {
                 case .custom:
                     return ""
-                case .string(let name):
-                    return "\(table).\(name)"
+                case .key(let key):
+                    return "\(table).\(self.key(key))"
                 }
             }.joined(separator: "+")
         }
@@ -75,19 +76,18 @@ public struct SQLSchemaConverter {
                 algorithm: SQLTableConstraintAlgorithm.unique(columns: fields.map(self.fieldName)),
                 name: SQLIdentifier("uq:\(name)")
             )
-        case .foreignKey(fields: let fields, foreignSchema: let parent, foreignFields: let parentFields, onDelete: let onDelete, onUpdate: let onUpdate):
-            let name = identifier(fields + parentFields)
-
+        case .foreignKey(let local, let schema, let foreign, let onDelete, let onUpdate):
+            let name = identifier(local + foreign)
             let reference = SQLForeignKey(
-                table: self.name(parent),
-                columns: parentFields.map(self.fieldName),
-                onDelete: sqlForeignKeyAction(onDelete),
-                onUpdate: sqlForeignKeyAction(onUpdate)
+                table: self.name(schema),
+                columns: foreign.map(self.fieldName),
+                onDelete: self.foreignKeyAction(onDelete),
+                onUpdate: self.foreignKeyAction(onUpdate)
             )
 
             return SQLConstraint(
                 algorithm: SQLTableConstraintAlgorithm.foreignKey(
-                    columns: fields.map(self.fieldName),
+                    columns: local.map(self.fieldName),
                     references: reference
                 ),
                 name: SQLIdentifier("fk:\(name)")
@@ -97,8 +97,8 @@ public struct SQLSchemaConverter {
         }
     }
 
-    private func sqlForeignKeyAction(_ fkAction: DatabaseSchema.Constraint.ForeignKeyAction) -> SQLForeignKeyAction {
-        switch fkAction {
+    private func foreignKeyAction(_ action: DatabaseSchema.ForeignKeyAction) -> SQLForeignKeyAction {
+        switch action {
         case .noAction:
             return .noAction
         case .restrict:
@@ -125,38 +125,32 @@ public struct SQLSchemaConverter {
         }
     }
 
+    private func fieldUpdate(_ fieldDefinition: DatabaseSchema.FieldUpdate) -> SQLExpression {
+        switch fieldDefinition {
+        case .custom(let any):
+            return custom(any)
+        case .dataType(let name, let dataType):
+            return SQLAlterColumnDefinitionType(
+                column: self.fieldName(name),
+                dataType: self.dataType(dataType)
+            )
+        }
+    }
+    
     private func fieldName(_ fieldName: DatabaseSchema.FieldName) -> SQLExpression {
         switch fieldName {
-        case .string(let string):
-            return SQLIdentifier(string)
+        case .key(let key):
+            return SQLIdentifier(self.key(key))
         case .custom(let any):
             return custom(any)
         }
     }
     
-    private func fieldName(_ fieldName: DatabaseSchema.ForeignFieldName) -> SQLExpression {
-        switch fieldName {
-        case .string(schema: _, field: let string):
-            return SQLIdentifier(string)
-        case .custom(schema: _, field: let any):
-            return custom(any)
-        }
-    }
-
-    private func tableName(_ fieldName: DatabaseSchema.ForeignFieldName) -> SQLExpression {
-        switch fieldName {
-        case .string(schema: let string, field: _):
-            return SQLIdentifier(string)
-        case .custom(schema: let any, field: _):
-            return custom(any)
-        }
-    }
-
     private func dataType(_ dataType: DatabaseSchema.DataType) -> SQLExpression {
         if let custom = self.delegate.customDataType(dataType) {
             return custom
         }
-
+        
         switch dataType {
         case .bool:
             return SQLDataType.int
@@ -188,8 +182,8 @@ public struct SQLSchemaConverter {
             return SQLDataType.int
         case .uint64:
             return SQLDataType.int
-        case .enum:
-            fatalError("SQL enums not yet supported.")
+        case .enum(let value):
+            return SQLEnumDataType(cases: value.cases)
         case .time:
             return SQLRaw("TIME")
         case .float:
@@ -202,22 +196,33 @@ public struct SQLSchemaConverter {
             return custom(any)
         }
     }
-
+    
     private func fieldConstraint(_ fieldConstraint: DatabaseSchema.FieldConstraint) -> SQLExpression {
         switch fieldConstraint {
         case .required:
             return SQLColumnConstraintAlgorithm.notNull
         case .identifier(let auto):
             return SQLColumnConstraintAlgorithm.primaryKey(autoIncrement: auto)
-        case .foreignKey(let parentField, onDelete: let onDelete, onUpdate: let onUpdate):
+        case .foreignKey(let schema, let field, let onDelete, let onUpdate):
             return SQLColumnConstraintAlgorithm.references(
-                self.tableName(parentField),
-                self.fieldName(parentField),
-                onDelete: sqlForeignKeyAction(onDelete),
-                onUpdate: sqlForeignKeyAction(onUpdate)
+                SQLIdentifier(schema),
+                self.fieldName(field),
+                onDelete: self.foreignKeyAction(onDelete),
+                onUpdate: self.foreignKeyAction(onUpdate)
             )
         case .custom(let any):
             return custom(any)
+        }
+    }
+
+    private func key(_ key: FieldKey) -> String {
+        switch key {
+        case .id:
+            return "id"
+        case .string(let name):
+            return name
+        case .aggregate:
+            return key.description
         }
     }
 }

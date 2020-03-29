@@ -21,7 +21,7 @@ public struct Migrator {
         )
     }
 
-    init(
+    public init(
         databaseFactory: @escaping (DatabaseID?) -> (Database),
         migrations: Migrations,
         on eventLoop: EventLoop
@@ -34,13 +34,7 @@ public struct Migrator {
     // MARK: Setup
     
     public func setupIfNeeded() -> EventLoopFuture<Void> {
-        self.database(nil).withConnection { conn in
-            MigrationLog.query(on: conn).all().map { migrations in
-                ()
-            }.flatMapError { error in
-                MigrationLog.migration.prepare(on: conn)
-            }
-        }
+        MigrationLog.migration.prepare(on: self.database(nil))
     }
     
     // MARK: Prepare
@@ -52,7 +46,7 @@ public struct Migrator {
         }.flatMap { (lastBatch, migrations) in
             .andAllSync(migrations.map { item in
                 { self.prepare(item, batch: lastBatch + 1) }
-            }, eventLoop: self.eventLoop)
+            }, on: self.eventLoop)
         }
     }
     
@@ -68,7 +62,7 @@ public struct Migrator {
         self.preparedMigrations(batch: number).flatMap { migrations in
             EventLoopFuture<Void>.andAllSync(migrations.map { item in
                 { self.revert(item) }
-            }, eventLoop: self.eventLoop)
+            }, on: self.eventLoop)
         }
     }
     
@@ -76,7 +70,7 @@ public struct Migrator {
         self.preparedMigrations().flatMap { migrations in
             .andAllSync(migrations.map { item in
                 { self.revert(item) }
-            }, eventLoop: self.eventLoop)
+            }, on: self.eventLoop)
         }.flatMap { _ in
             self.revertMigrationLog()
         }
@@ -86,7 +80,7 @@ public struct Migrator {
     
     public func previewPrepareBatch() -> EventLoopFuture<[(Migration, DatabaseID?)]> {
         self.unpreparedMigrations().map { items in
-            items.map { item in
+            items.map { item  in
                 (item.migration, item.id)
             }
         }
@@ -121,82 +115,61 @@ public struct Migrator {
     // MARK: Private
     
     private func prepare(_ item: Migrations.Item, batch: Int) -> EventLoopFuture<Void> {
-        self.database(item.id).withConnection { conn in
-            item.migration.prepare(on: conn)
-        }.flatMap {
-            self.database(nil).withConnection { conn in
-                MigrationLog(name: item.migration.name, batch: batch)
-                    .save(on: conn)
-            }
+        item.migration.prepare(on: self.database(item.id)).flatMap {
+            MigrationLog(name: item.migration.name, batch: batch)
+                .save(on: self.database(nil))
         }
     }
     
     private func revert(_ item: Migrations.Item) -> EventLoopFuture<Void> {
-        self.database(item.id).withConnection { conn in
-            item.migration.revert(on: conn)
-        }.flatMap {
-            self.database(nil).withConnection { conn in
-                MigrationLog.query(on: conn)
-                    .filter(\.$name == item.migration.name)
-                    .delete()
-            }
+        item.migration.revert(on: self.database(item.id)).flatMap {
+            MigrationLog.query(on: self.database(nil))
+                .filter(\.$name == item.migration.name)
+                .delete()
         }
     }
     
     private func revertMigrationLog() -> EventLoopFuture<Void> {
-        self.database(nil).withConnection { conn in
-            MigrationLog.migration.revert(on: conn)
-        }
+        MigrationLog.migration.revert(on: self.database(nil))
     }
     
     private func lastBatchNumber() -> EventLoopFuture<Int> {
-        self.database(nil).withConnection { conn in
-            MigrationLog.query(on: conn).sort(\.$batch, .descending).first().map { log in
-                log?.batch ?? 0
-            }
+        MigrationLog.query(on: self.database(nil)).sort(\.$batch, .descending).first().map { log in
+            log?.batch ?? 0
         }
     }
     
     private func preparedMigrations() -> EventLoopFuture<[Migrations.Item]> {
-        self.database(nil).withConnection { conn in
-            MigrationLog.query(on: conn).all().map { logs -> [Migrations.Item] in
-                logs.compactMap { log in
-                    if let item = self.migrations.storage.filter({ $0.migration.name == log.name }).first {
-                        return item
-                    } else {
-                        print("No registered migration found for \(log.name)")
-                        return nil
-                    }
-                }.reversed()
-            }
+        MigrationLog.query(on: self.database(nil)).all().map { logs -> [Migrations.Item] in
+            self.migrations.storage.filter { storage in
+                logs.contains { log in
+                    storage.migration.name == log.name
+                }
+            }.reversed()
         }
     }
     
     private func preparedMigrations(batch: Int) -> EventLoopFuture<[Migrations.Item]> {
-        self.database(nil).withConnection { conn in
-            MigrationLog.query(on: conn).filter(\.$batch == batch).all().map { logs in
-                logs.compactMap { log in
-                    if let item = self.migrations.storage.filter({ $0.migration.name == log.name }).first {
-                        return item
-                    } else {
-                        print("No registered migration found for \(log.name)")
-                        return nil
-                    }
-                }.reversed()
-            }
+        MigrationLog.query(on: self.database(nil)).filter(\.$batch == batch).all().map { logs in
+            self.migrations.storage.filter { storage in
+                logs.contains { log in
+                    storage.migration.name == log.name
+                }
+            }.reversed()
         }
     }
     
     private func unpreparedMigrations() -> EventLoopFuture<[Migrations.Item]> {
-        self.database(nil).withConnection { conn in
-            return MigrationLog.query(on: conn).all().map { logs -> [Migrations.Item] in
-                return self.migrations.storage.compactMap { item in
-                    if logs.filter({ $0.name == item.migration.name }).count == 0 {
-                        return item
-                    } else {
-                        // log found, this has been prepared
-                        return nil
-                    }
+        return MigrationLog.query(on: self.database(nil))
+            .all()
+            .map
+        { logs -> [Migrations.Item] in
+            return self.migrations.storage.compactMap { item in
+                if logs.filter({ $0.name == item.migration.name }).count == 0 {
+                    return item
+                } else {
+                    // log found, this has been prepared
+                    return nil
                 }
             }
         }
@@ -207,10 +180,10 @@ public struct Migrator {
     }
 }
 
-private extension EventLoopFuture {
-    static func andAllSync(
+extension EventLoopFuture {
+    public static func andAllSync(
         _ futures: [() -> EventLoopFuture<Void>],
-        eventLoop: EventLoop
+        on eventLoop: EventLoop
     ) -> EventLoopFuture<Void> {
         let promise = eventLoop.makePromise(of: Void.self)
         
