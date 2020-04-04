@@ -70,7 +70,7 @@ public struct SQLQueryConverter {
         select.predicate = self.filters(query.filters)
         select.joins = query.joins.map(self.join)
         select.orderBy = query.sorts.map(self.sort)
-        if let limit = query.limits.first {
+        if let limit = query.limits.last {
             switch limit {
             case .count(let count):
                 select.limit = count
@@ -78,7 +78,7 @@ public struct SQLQueryConverter {
                 fatalError("Unsupported limit \(any)")
             }
         }
-        if let offset = query.offsets.first {
+        if let offset = query.offsets.last {
             switch offset {
             case .count(let count):
                 select.offset = count
