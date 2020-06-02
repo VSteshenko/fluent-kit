@@ -34,6 +34,11 @@ public struct DatabaseSchema {
         public struct Enum {
             public var name: String
             public var cases: [String]
+
+            public init(name: String, cases: [String]) {
+                self.name = name
+                self.cases = cases
+            }
         }
         case `enum`(Enum)
         case string
@@ -50,7 +55,7 @@ public struct DatabaseSchema {
         case array(of: DataType)
         case custom(Any)
     }
-    
+
     public enum FieldConstraint {
         public static func references(
             _ schema: String,
@@ -76,8 +81,13 @@ public struct DatabaseSchema {
         )
         case custom(Any)
     }
-    
+
     public enum Constraint {
+        case constraint(ConstraintAlgorithm, name: String?)
+        case custom(Any)
+    }
+    
+    public enum ConstraintAlgorithm {
         case unique(fields: [FieldName])
         case foreignKey(
             _ fields: [FieldName],
@@ -116,12 +126,19 @@ public struct DatabaseSchema {
         case custom(Any)
     }
 
+    public enum ConstraintDelete {
+        case constraint(ConstraintAlgorithm)
+        case name(String)
+        case custom(Any)
+    }
+
     public var action: Action
     public var schema: String
     public var createFields: [FieldDefinition]
     public var updateFields: [FieldUpdate]
     public var deleteFields: [FieldName]
-    public var constraints: [Constraint]
+    public var createConstraints: [Constraint]
+    public var deleteConstraints: [ConstraintDelete]
     public var exclusiveCreate: Bool
     
     public init(schema: String) {
@@ -130,7 +147,8 @@ public struct DatabaseSchema {
         self.createFields = []
         self.updateFields = []
         self.deleteFields = []
-        self.constraints = []
+        self.createConstraints = []
+        self.deleteConstraints = []
         self.exclusiveCreate = true
     }
 
@@ -140,7 +158,8 @@ public struct DatabaseSchema {
         self.createFields = []
         self.updateFields = []
         self.deleteFields = []
-        self.constraints = []
+        self.createConstraints = []
+        self.deleteConstraints = []
         self.exclusiveCreate = true
     }
 }

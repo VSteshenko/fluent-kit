@@ -1,9 +1,13 @@
-@testable import class FluentKit.QueryBuilder
+import class FluentKit.QueryBuilder
 
 extension FluentBenchmarker {
     public func testTimestamp() throws {
         try self.testTimestamp_touch()
         try self.testTimestamp_ISO8601()
+        try self.testTimestamp_createOnUpdate()
+        try self.testTimestamp_createOnBulkCreate()
+        try self.testTimestamp_createOnBulkUpdate()
+        try self.testTimestamp_updateNoChanges()
     }
 
     public func testTimestamp_touch() throws {
@@ -36,14 +40,14 @@ extension FluentBenchmarker {
             try event.save(on: self.database).wait()
 
             let formatter = ISO8601DateFormatter()
-            let createdAt = try formatter.string(from: XCTUnwrap(event.createdAt))
-            let updatedAt = try formatter.string(from: XCTUnwrap(event.updatedAt))
-
+            formatter.formatOptions.insert(.withFractionalSeconds)
+            let createdAt = formatter.string(from: event.createdAt!)
+            let updatedAt = formatter.string(from: event.updatedAt!)
             try Event.query(on: self.database).run({ output in
                 do {
                     let schema = output.schema("events")
-                    let createdAtField = try schema.decode(event.$createdAt.field.key, as: String.self)
-                    let updatedAtField = try schema.decode(event.$updatedAt.field.key, as: String.self)
+                    let createdAtField = try schema.decode(event.$createdAt.$timestamp.key, as: String.self)
+                    let updatedAtField = try schema.decode(event.$updatedAt.$timestamp.key, as: String.self)
                     XCTAssertEqual(createdAtField, createdAt)
                     XCTAssertEqual(updatedAtField, updatedAt)
                 } catch let error {
@@ -53,6 +57,87 @@ extension FluentBenchmarker {
 
             try event.delete(on: self.database).wait()
             try XCTAssertEqual(Event.query(on: self.database).all().wait().count, 0)
+        }
+    }
+    
+    public func testTimestamp_createOnUpdate() throws {
+        try runTest(#function, [
+            EventMigration()
+        ]) {
+            let event = Event(name: "C")
+            try event.create(on: self.database).wait()
+            XCTAssertNotNil(event.createdAt)
+            XCTAssertNotNil(event.updatedAt)
+            XCTAssertEqual(event.createdAt, event.updatedAt)
+            
+            Thread.sleep(forTimeInterval: 0.001) // ensure update timestamp with millisecond precision increments
+
+            let storedEvent = try Event.find(event.id, on: self.database).wait()
+            XCTAssertNotNil(storedEvent)
+            XCTAssertNotNil(storedEvent?.createdAt)
+            XCTAssertNotNil(storedEvent?.updatedAt)
+            XCTAssertEqual(storedEvent?.createdAt, event.createdAt)
+        }
+    }
+    
+    public func testTimestamp_createOnBulkCreate() throws {
+        try runTest(#function, [
+            UserMigration(),
+        ]) {
+            let userOne = User(name: "A")
+            let userTwo = User(name: "B")
+            XCTAssertEqual(userOne.createdAt, nil)
+            XCTAssertEqual(userOne.updatedAt, nil)
+            XCTAssertEqual(userTwo.createdAt, nil)
+            XCTAssertEqual(userTwo.updatedAt, nil)
+            try [userOne, userTwo].create(on: self.database).wait()
+            XCTAssertNotNil(userOne.createdAt)
+            XCTAssertNotNil(userOne.updatedAt)
+            XCTAssertEqual(userOne.updatedAt, userOne.createdAt)
+            XCTAssertNotNil(userTwo.createdAt)
+            XCTAssertNotNil(userTwo.updatedAt)
+            XCTAssertEqual(userTwo.updatedAt, userTwo.createdAt)
+        }
+    }
+    
+    public func testTimestamp_createOnBulkUpdate() throws {
+        try runTest(#function, [
+            UserMigration(),
+        ]) {
+            let userOne = User(name: "A")
+            let userTwo = User(name: "B")
+            XCTAssertEqual(userOne.createdAt, nil)
+            XCTAssertEqual(userOne.updatedAt, nil)
+            XCTAssertEqual(userTwo.createdAt, nil)
+            XCTAssertEqual(userTwo.updatedAt, nil)
+            try [userOne, userTwo].create(on: self.database).wait()
+            
+            let originalOne = userOne.updatedAt
+            let originalTwo = userTwo.updatedAt
+            
+            Thread.sleep(forTimeInterval: 1)
+            
+            try User.query(on: self.database).set(\.$name, to: "C").update().wait()
+            
+            XCTAssertNotEqual(try User.find(userOne.id, on: self.database).wait()!.updatedAt!.timeIntervalSinceNow, originalOne!.timeIntervalSinceNow)
+            XCTAssertNotEqual(try User.find(userTwo.id, on: self.database).wait()!.updatedAt!.timeIntervalSinceNow, originalTwo!.timeIntervalSinceNow)
+        }
+    }
+
+    public func testTimestamp_updateNoChanges() throws {
+        try runTest(#function, [
+            EventMigration()
+        ]) {
+            let event = Event(name: "C")
+            try event.create(on: self.database).wait()
+            let updatedAtPreSave = event.updatedAt
+
+            XCTAssertFalse(event.hasChanges)
+            Thread.sleep(forTimeInterval: 0.001) // ensure update timestamp with millisecond precision increments
+            try event.save(on: self.database).wait()
+
+            let storedEvent = try Event.find(event.id, on: self.database).wait()
+            XCTAssertEqual(storedEvent?.updatedAt, updatedAtPreSave)
         }
     }
 }
@@ -107,13 +192,13 @@ private final class Event: Model {
     @Field(key: "name")
     var name: String
 
-    @Timestamp(key: "created_at", on: .create, format: .iso8601)
+    @Timestamp(key: "created_at", on: .create, format: .iso8601(withMilliseconds: true))
     var createdAt: Date?
 
-    @Timestamp(key: "updated_at", on: .update, format: .iso8601)
+    @Timestamp(key: "updated_at", on: .update, format: .iso8601(withMilliseconds: true))
     var updatedAt: Date?
 
-    @Timestamp(key: "deleted_at", on: .delete, format: .iso8601)
+    @Timestamp(key: "deleted_at", on: .delete, format: .iso8601(withMilliseconds: true))
     var deletedAt: Date?
 
     init() { }
